@@ -1,0 +1,19 @@
+site_name: ManyAgents
+site_description: ML experiment orchestration via ManyLatents
+site_author: César Miguel Valdez Córdova
+
+theme:
+  name: material
+  palette:
+    primary: blue
+    accent: light-blue
+
+nav:
+  - Home: index.md
+  - Usage: usage.md
+
+markdown_extensions:
+  - codehilite
+  - toc:
+      permalink: true
+  - admonition
