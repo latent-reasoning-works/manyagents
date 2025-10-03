@@ -1,125 +1,140 @@
-"""Adapter for ManyLatents agent."""
+"""Adapter for ManyLatents agent using direct API calls."""
 
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
+
+import numpy as np
 
 from .base import AgentAdapter
-from ..executor import ManyLatentsExecutor
 
 log = logging.getLogger(__name__)
 
 
 class ManyLatentsAdapter(AgentAdapter):
-    """Adapter for ManyLatents dimensionality reduction and analysis."""
+    """
+    Adapter for ManyLatents using direct Python API (no subprocess).
 
-    def __init__(self, timeout_s: int = 300, dry_run: bool = False):
+    This new implementation calls manylatents.api.run() directly, enabling:
+    - In-memory data passing between workflow steps
+    - No subprocess overhead
+    - Direct access to embeddings and metrics
+    """
+
+    def __init__(self):
         super().__init__("manylatents")
-        self.executor = ManyLatentsExecutor(timeout_s=timeout_s, dry_run=dry_run)
 
-    async def run(self, task_config: Dict[str, Any], input_files: Dict[str, Path]) -> Dict[str, Any]:
+    async def run(
+        self,
+        task_config: Dict[str, Any],
+        input_files: Dict[str, Path],
+        input_data: Optional[np.ndarray] = None
+    ) -> Dict[str, Any]:
         """
-        Execute ManyLatents analysis with structured configuration.
+        Execute ManyLatents using direct API call.
 
         Args:
-            task_config: Dictionary with ManyLatents-specific parameters:
-                - workflow: ManyLatents workflow name (default: "single_algorithm")
-                - algorithm: Algorithm type (e.g., "pca", "umap", "tsne")
-                - data: Dataset name (e.g., "swissroll", "GaussianBlobs")
-                - metrics: Metrics configuration (optional)
-                - overrides: Additional Hydra overrides (optional)
-            input_files: Input data files (currently not used by ManyLatents)
+            task_config: Dictionary with ManyLatents configuration:
+                - algorithm: Algorithm type (e.g., "pca", "phate", "umap")
+                - data: Dataset name (e.g., "swissroll")
+                - pipeline: Optional list of pipeline steps
+                - n_components: Number of components (default: 2)
+                - Other Hydra config overrides
+            input_files: Input data files (reserved for future use)
+            input_data: Optional numpy array from previous step (for chaining)
 
         Returns:
-            Standardized result dictionary
+            Standardized result dictionary with embeddings and metrics
+
+        Example:
+            adapter = ManyLatentsAdapter()
+            result = await adapter.run(
+                {"algorithm": "pca", "data": "swissroll", "n_components": 2},
+                {}
+            )
+            embeddings = result['output_files']['embeddings']
         """
-        log.info(f"ManyLatents executing with config: {task_config}")
+        try:
+            # Import manylatents API
+            from manylatents.api import run
 
-        # Extract configuration with defaults
-        workflow_name = task_config.get("workflow", "single_algorithm")
-        overrides = self._build_overrides(task_config)
+            log.info(f"ManyLatents API executing with config: {task_config}")
 
-        # Create output directory for this execution
-        output_dir = Path("outputs") / f"manylatents_{workflow_name}"
-
-        # Execute in thread pool to avoid blocking async loop
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            self.executor.execute_workflow,
-            workflow_name,
-            overrides,
-            output_dir
-        )
-
-        # Convert executor result to standardized format
-        success = result.get("success", False)
-
-        if success:
-            summary = f"ManyLatents successfully executed {workflow_name} workflow"
-            output_files = self._gather_output_files(output_dir)
-        else:
-            summary = f"ManyLatents failed: {result.get('stderr', 'Unknown error')}"
-            output_files = {}
-
-        return {
-            "summary": summary,
-            "output_files": output_files,
-            "success": success,
-            "metadata": {
-                "workflow": workflow_name,
-                "overrides": overrides,
-                "command": result.get("cmd", []),
-                "returncode": result.get("returncode"),
-                "stdout": result.get("stdout", ""),
-                "stderr": result.get("stderr", "")
+            # Build configuration
+            overrides = {
+                'debug': True,  # Disable wandb for agent workflows
+                'project': 'manyagents_workflow',
             }
-        }
 
-    def _build_overrides(self, task_config: Dict[str, Any]) -> List[str]:
-        """Build Hydra overrides from structured task configuration."""
-        overrides = []
+            # Handle dataset
+            if 'data' in task_config:
+                overrides['data'] = task_config['data']
 
-        # Algorithm configuration
-        if "algorithm" in task_config:
-            overrides.append("algorithm=default")
-            overrides.append(f"algorithm.latent={task_config['algorithm']}")
+            # Handle pipeline vs single algorithm
+            if 'pipeline' in task_config:
+                # Pipeline mode
+                overrides['pipeline'] = task_config['pipeline']
+            elif 'algorithm' in task_config:
+                # Single algorithm mode
+                algo_name = task_config['algorithm'].lower()
+                n_components = task_config.get('n_components', 2)
 
-        # Data configuration
-        if "data" in task_config:
-            overrides.append(f"data={task_config['data']}")
+                overrides['algorithms'] = {
+                    'latent': {
+                        '_target_': f'manylatents.algorithms.latent.{algo_name}.{algo_name.upper()}Module',
+                        'n_components': n_components
+                    }
+                }
 
-        # Metrics configuration
-        if "metrics" in task_config:
-            overrides.append(f"metrics={task_config['metrics']}")
+            # Add any additional overrides from task_config
+            for key, value in task_config.items():
+                if key not in ['algorithm', 'data', 'pipeline', 'n_components']:
+                    overrides[key] = value
 
-        # Additional custom overrides
-        if "overrides" in task_config:
-            overrides.extend(task_config["overrides"])
+            log.info(f"Calling manylatents.api.run() with overrides: {overrides}")
 
-        log.info(f"Built overrides: {overrides}")
-        return overrides
+            # Run in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: run(input_data=input_data, **overrides)
+            )
 
-    def _gather_output_files(self, output_dir: Path) -> Dict[str, List[Path]]:
-        """Gather output files produced by ManyLatents execution."""
-        output_files = {}
+            # Extract results
+            embeddings = result.get('embeddings')
+            scores = result.get('scores', {})
+            metadata = result.get('metadata', {})
 
-        if not output_dir.exists():
-            return output_files
+            # Build summary
+            summary_parts = [
+                f"ManyLatents successfully executed",
+                f"Output shape: {embeddings.shape if embeddings is not None else 'N/A'}",
+            ]
 
-        # Look for common ManyLatents output patterns
-        for pattern, file_type in [
-            ("*.png", "plots"),
-            ("*.pdf", "plots"),
-            ("*.csv", "embeddings"),
-            ("*.json", "metrics"),
-            ("*.yaml", "config"),
-            ("*.pt", "model"),
-            ("*.ckpt", "checkpoint")
-        ]:
-            files = list(output_dir.glob(f"**/{pattern}"))
-            if files:
-                output_files[file_type] = files
+            if scores:
+                metric_summary = ', '.join(f'{k}={v:.3f}' for k, v in list(scores.items())[:3])
+                summary_parts.append(f"Metrics: {metric_summary}")
 
-        return output_files
+            return {
+                'summary': ' | '.join(summary_parts),
+                'output_files': {
+                    'embeddings': embeddings,  # numpy array
+                    'scores': scores,
+                    'metadata': metadata
+                },
+                'success': True,
+                'metadata': metadata
+            }
+
+        except Exception as e:
+            log.error(f"ManyLatents API call failed: {e}", exc_info=True)
+            return {
+                'summary': f"ManyLatents failed: {str(e)}",
+                'output_files': {},
+                'success': False,
+                'metadata': {
+                    'error': str(e),
+                    'task_config': task_config
+                }
+            }
