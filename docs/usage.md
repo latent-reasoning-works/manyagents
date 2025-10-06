@@ -13,23 +13,23 @@ uv run python -m manyagents.main
 
 ### Programmatic Usage
 ```python
-from manyagents.executor import ManyLatentsExecutor
+from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
 
-# Create executor
-executor = ManyLatentsExecutor(timeout_s=300, dry_run=False)
+# Create adapter
+adapter = ManyLatentsAdapter()
 
-# Execute single workflow
-result = executor.execute_workflow(
-    workflow_name="",  # Uses default workflow
-    overrides=[
-        "data=swissroll", 
-        "algorithm=latent/pca",
-        "metrics=default",
-        "seed=42"
-    ]
+# Execute workflow using direct API
+result = await adapter.run(
+    task_config={
+        "data": "swissroll",
+        "algorithm": "pca",
+        "n_components": 2
+    },
+    input_files={}
 )
 
 print(f"Success: {result['success']}")
+print(f"Embeddings shape: {result['output_files']['embeddings'].shape}")
 ```
 
 ## Configuration

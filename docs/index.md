@@ -14,7 +14,7 @@ ManyAgents follows a simple **propose → execute → collect** workflow for ML 
 
 - **Package Manager**: UV (Astral)
 - **Configuration**: Hydra with YAML configs
-- **Execution**: Subprocess calls to `manylatents.main`
+- **Execution**: Direct Python API calls to manylatents
 - **Job Submission**: SLURM via hydra-submitit-launcher
 - **Python**: 3.10 (pinned for dependency compatibility)
 
@@ -22,13 +22,14 @@ ManyAgents follows a simple **propose → execute → collect** workflow for ML 
 
 ### Core Models
 - `AnalysisSpec`: Specification for individual analysis runs
-- `AnalysisResult`: Results from executed analyses  
+- `AnalysisResult`: Results from executed analyses
 - `Metric`: Individual metric results with metadata
 
-### Execution
-- `ManyLatentsExecutor`: Handles subprocess calls to ManyLatents
-- Sequential workflow support for discrete analysis lists
-- Configurable timeouts and dry-run capabilities
+### Adapters
+- `ManyLatentsAdapter`: Direct Python API integration with manylatents
+- `AgentAdapter`: Base class for all agent integrations
+- In-memory data passing between workflow steps
+- Standardized result format across all agents
 
 ### Configuration
 Hydra-based configuration system with support for:

@@ -1,0 +1,22 @@
+# @package _global_
+# Pattern: Single algorithm workflow
+# This demonstrates the simplest manyAgents workflow: run one algorithm
+#
+# Usage:
+#   uv run manyagents experiment=single_algorithm
+#
+# Structure mirrors manylatents experiment configs for consistency
+
+name: single_algorithm_example
+
+workflow:
+  steps:
+    - name: pca_embedding          # Descriptive step name
+      agent: manylatents           # Which adapter to use
+      config:                      # Passed directly to ManyLatentsAdapter.run()
+        algorithm: pca             # Algorithm name (explicit registry)
+        data: swissroll            # Dataset name
+        n_components: 2            # Algorithm parameters
+        seed: 42                   # Reproducibility
+
+output_dir: outputs/single_algorithm  # Where to save results
