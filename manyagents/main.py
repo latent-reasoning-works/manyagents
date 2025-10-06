@@ -1,45 +1,226 @@
-"""Main entrypoint for ManyAgents with Hydra configuration."""
+"""
+Main orchestration engine for ManyAgents.
+
+This module provides the core workflow execution logic using the adapter pattern.
+"""
+import asyncio
 import logging
 from pathlib import Path
+from typing import Dict, Any, Optional
 
 import hydra
 from omegaconf import DictConfig
 
-# Set up logging
+from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
+# from manyagents.adapters.biodiscovery_adapter import BioDiscoveryAgentAdapter  # Coming soon
+# from manyagents.adapters.cellforge_adapter import CellForgeAdapter  # Coming soon
+
 log = logging.getLogger(__name__)
 
+# ============================================================================
+# ADAPTER REGISTRY
+# ============================================================================
+# Maps agent names in config files to their corresponding adapter classes
+# This is the bridge between declarative configs and Python implementations
+
+ADAPTER_REGISTRY = {
+    "manylatents": ManyLatentsAdapter,
+    # "biodiscovery": BioDiscoveryAgentAdapter,  # Placeholder for Phase 2
+    # "cellforge": CellForgeAdapter,  # Placeholder for Phase 2
+}
+
+
+# ============================================================================
+# ORCHESTRATION ENGINE
+# ============================================================================
+
+async def execute_workflow_chain(
+    workflow_config: DictConfig,
+    output_dir: Optional[Path] = None
+) -> Dict[str, Any]:
+    """
+    Execute a workflow chain using the adapter pattern.
+
+    This is the core orchestration function for Phase 1. It:
+    1. Reads a declarative workflow configuration
+    2. Executes each step using the appropriate adapter
+    3. Manages state passing between steps
+    4. Returns final results
+
+    Args:
+        workflow_config: Hydra config containing workflow.steps
+        output_dir: Optional output directory for results
+
+    Returns:
+        Dictionary containing:
+            - success: bool
+            - steps: List of step results
+            - final_state: Final workflow state
+            - metadata: Execution metadata
+
+    Example workflow_config structure:
+        workflow:
+          steps:
+            - name: pca_analysis
+              agent: manylatents
+              config:
+                algorithm: pca
+                data: swissroll
+                n_components: 2
+    """
+    log.info("Starting workflow execution")
+
+    # Initialize workflow state
+    state = {
+        "steps_completed": [],
+        "current_data": None,  # In-memory data passing between steps
+        "output_files": {},    # Accumulated output files
+        "metadata": {}
+    }
+
+    steps = workflow_config.workflow.steps
+    log.info(f"Workflow has {len(steps)} steps")
+
+    # Execute each step in sequence
+    for i, step_config in enumerate(steps):
+        step_name = step_config.get("name", f"step_{i}")
+        agent_name = step_config.get("agent")
+        task_config = dict(step_config.get("config", {}))
+
+        log.info(f"\n{'='*60}")
+        log.info(f"Executing Step {i+1}/{len(steps)}: {step_name}")
+        log.info(f"Agent: {agent_name}")
+        log.info(f"Config: {task_config}")
+        log.info(f"{'='*60}")
+
+        # Get adapter class from registry
+        if agent_name not in ADAPTER_REGISTRY:
+            error_msg = f"Unknown agent '{agent_name}'. Available: {list(ADAPTER_REGISTRY.keys())}"
+            log.error(error_msg)
+            return {
+                "success": False,
+                "steps": state["steps_completed"],
+                "final_state": state,
+                "metadata": {"error": error_msg}
+            }
+
+        adapter_class = ADAPTER_REGISTRY[agent_name]
+
+        # Instantiate adapter
+        adapter = adapter_class()
+        log.info(f"Using adapter: {adapter_class.__name__}")
+
+        # Prepare input files from previous step outputs
+        input_files = state.get("output_files", {})
+
+        # Get input data from previous step (for in-memory passing)
+        input_data = state.get("current_data")
+
+        # Execute step
+        try:
+            result = await adapter.run(
+                task_config=task_config,
+                input_files=input_files,
+                input_data=input_data
+            )
+        except Exception as e:
+            log.error(f"Step {step_name} failed with exception: {e}", exc_info=True)
+            return {
+                "success": False,
+                "steps": state["steps_completed"],
+                "final_state": state,
+                "metadata": {"error": str(e), "failed_step": step_name}
+            }
+
+        # Check if step succeeded
+        if not result.get("success", False):
+            log.error(f"Step {step_name} failed")
+            log.error(f"Summary: {result.get('summary')}")
+            return {
+                "success": False,
+                "steps": state["steps_completed"],
+                "final_state": state,
+                "metadata": result.get("metadata", {})
+            }
+
+        # Step succeeded - update state
+        log.info(f"Step {step_name} completed successfully")
+        log.info(f"Summary: {result['summary']}")
+
+        # Update state for next step
+        state["steps_completed"].append({
+            "name": step_name,
+            "agent": agent_name,
+            "result": result
+        })
+
+        # Pass data in-memory to next step (if available)
+        if "embeddings" in result.get("output_files", {}):
+            state["current_data"] = result["output_files"]["embeddings"]
+
+        # Accumulate output files
+        state["output_files"].update(result.get("output_files", {}))
+
+        # Accumulate metadata
+        if "metadata" in result:
+            state["metadata"][step_name] = result["metadata"]
+
+    log.info("\n" + "="*60)
+    log.info("WORKFLOW COMPLETED SUCCESSFULLY")
+    log.info(f"Total steps executed: {len(state['steps_completed'])}")
+    log.info("="*60)
+
+    return {
+        "success": True,
+        "steps": state["steps_completed"],
+        "final_state": state,
+        "metadata": {"total_steps": len(steps)}
+    }
+
+
+# ============================================================================
+# HYDRA ENTRY POINT
+# ============================================================================
 
 @hydra.main(version_base=None, config_path="configs", config_name="main")
 def main(cfg: DictConfig) -> None:
-    """Main ManyAgents entrypoint with Hydra configuration."""
-    log.info("Starting ManyAgents...")
-    log.info(f"Config: {cfg}")
-    
-    try:
-        # Test ManyLatents import
-        log.info("Testing ManyLatents import...")
-        import manylatents
-        log.info(f"Successfully imported ManyLatents: {manylatents}")
-        
-        # Test basic ManyLatents functionality if available
-        if hasattr(manylatents, '__version__'):
-            log.info(f"ManyLatents version: {manylatents.__version__}")
-        
-        # Simple test run based on config
-        if cfg.get("test_run", False):
-            log.info("Running test analysis...")
-            # This will be expanded to call manylatents.main with overrides
-            log.info("Test analysis completed (placeholder)")
-        
-        log.info("ManyAgents completed successfully")
-        
-    except ImportError as e:
-        log.error(f"Failed to import ManyLatents: {e}")
-        log.error("Make sure ManyLatents is installed: pip install -e .")
-        raise
-    except Exception as e:
-        log.error(f"Error in ManyAgents: {e}")
-        raise
+    """
+    Main Hydra entry point for manyAgents.
+
+    Usage:
+        uv run manyagents experiment=single_algorithm
+    """
+    log.info("Starting ManyAgents orchestrator")
+    log.info(f"Experiment name: {cfg.name}")
+
+    # Check if workflow is defined
+    if not cfg.get("workflow"):
+        log.error("No workflow defined in config")
+        log.info("Usage: uv run manyagents experiment=single_algorithm")
+        return
+
+    # Create output directory
+    output_dir = Path(cfg.get("output_dir", "outputs"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log.info(f"Output directory: {output_dir}")
+
+    # Execute workflow
+    result = asyncio.run(execute_workflow_chain(cfg, output_dir))
+
+    # Print results
+    if result["success"]:
+        log.info("\n" + "="*60)
+        log.info("WORKFLOW RESULTS")
+        log.info("="*60)
+
+        for step in result["steps"]:
+            log.info(f"\n{step['name']}:")
+            log.info(f"  Summary: {step['result']['summary']}")
+
+        log.info("\n" + "="*60)
+    else:
+        log.error("Workflow failed")
+        log.error(f"Error: {result.get('metadata', {}).get('error', 'Unknown')}")
 
 
 if __name__ == "__main__":
