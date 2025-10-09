@@ -58,8 +58,16 @@ class ManyLatentsAdapter(AgentAdapter):
         try:
             # Import manylatents API
             from manylatents.api import run
+            from hydra.core.global_hydra import GlobalHydra
 
             log.info(f"ManyLatents API executing with config: {task_config}")
+
+            # Clear Hydra's global state before calling manylatents API
+            # This is necessary because manyAgents already initialized Hydra
+            # and manylatents.api.run() also initializes it
+            if GlobalHydra.instance().is_initialized():
+                log.debug("Clearing GlobalHydra instance before calling manylatents API")
+                GlobalHydra.instance().clear()
 
             # Build configuration
             overrides = {
