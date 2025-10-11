@@ -59,6 +59,104 @@ This document tracks architectural and design decisions made during manyAgents d
 
 ---
 
+### Decision 003: Schema-on-Read with Flexible Dicts over Rigid Dataclasses
+**Date**: 2025-10-10
+**Status**: Adopted
+**Context**: ManyAgents orchestrates diverse agents (manylatents, BioDiscoveryAgent, CellForge) where each agent has completely different parameter requirements. We needed to decide how to type and validate configuration data passed between the orchestrator and adapters.
+
+**Decision**: Use flexible `dict[str, Any]` with runtime validation instead of rigid dataclasses or per-agent schemas.
+
+**Rationale**:
+
+**The Problem with Dataclasses:**
+- **Schema Explosion**: Would require one dataclass per agent type, plus one per algorithm within each agent (PCAConfig, PHATEConfig, UMAPConfig, etc.)
+- **Maintenance Burden**: Hundreds of dataclasses requiring constant updates as agents evolve
+- **Breaking Changes**: Adding new fields to agents would break all existing workflows
+- **Unpredictable Needs**: We cannot predict the configuration needs of all future agents (especially LLM-driven agents that write their own configs)
+
+**The Schema-on-Read Approach:**
+Instead of enforcing schemas upfront (schema-on-write), we validate at runtime (schema-on-read):
+1. Workflow configs can pass ANY parameters to agents (no schema restrictions)
+2. Each adapter validates ONLY what it needs (minimal contract)
+3. Agents can inject custom outputs without schema changes
+4. Future agents can be added without modifying manyagents core
+
+**Example Comparison:**
+
+Rigid dataclass (brittle):
+```python
+@dataclass
+class ManyLatentsConfig:
+    algorithm: str
+    data: str
+    n_components: int
+    # Breaking change when new field added:
+    callbacks: dict  # All workflows must update!
+```
+
+Schema-on-read (flexible):
+```python
+# v1.0 workflow - still works
+{"algorithm": "pca", "data": "swissroll", "n_components": 2}
+
+# v2.0 workflow - adds callbacks naturally
+{"algorithm": "pca", "callbacks": {"save": {"format": "csv"}}}
+# Both work! Validation happens only when adapter needs specific fields.
+```
+
+**Inspiration from manylatents:**
+This mirrors manylatents' successful `EmbeddingOutputs` pattern:
+- `EmbeddingOutputs = dict[str, Any]` (not a dataclass!)
+- Requires only "embeddings" key, everything else optional
+- Algorithms inject custom fields freely (participation_ratio, curvature, etc.)
+- Runtime validation via `validate_embedding_outputs()` function
+
+**TypedDict for IDE Support:**
+We use `TypedDict` with `total=False` to get IDE autocomplete while maintaining flexibility:
+```python
+class AdapterResult(TypedDict, total=False):
+    success: bool  # IDE knows about this
+    summary: str
+    # But agents can add custom fields at runtime
+```
+
+**Enabling Autonomous Agents:**
+When LLM agents need to write configs programmatically:
+1. They build plain Python dicts (no schema constraints)
+2. Use templates/guides as context
+3. Validation happens at execution (fail-fast with clear errors)
+4. Agent learns from validation errors (RL feedback loop)
+
+This enables agents to explore configuration space without being locked into predetermined schemas.
+
+**Validation Strategy:**
+Rather than enforcing schemas upfront, we:
+1. Accept flexible dicts
+2. Validate at execution time (adapter-specific validators)
+3. Provide clear, actionable error messages
+4. Enable agents to learn from failures
+
+Overhead is minimal (dict validation is ~microseconds) while preventing schema mismatches between agents.
+
+**Alternatives Considered**:
+- **Pydantic Models**: Powerful validation but still requires schema per agent
+  - Pros: Runtime validation, JSON schema generation
+  - Cons: Schema explosion, breaking changes on updates
+- **Hydra Structured Configs**: Better type safety but too rigid
+  - Pros: Compile-time checking, better IDE support
+  - Cons: Requires defining all possible configs upfront
+- **Protocol Types**: Runtime duck-typing
+  - Pros: More Pythonic, flexible
+  - Cons: Harder to document, unclear failure modes
+
+**Implementation Notes**:
+- Core types defined in `manyagents/types.py`
+- Validation functions mirror manylatents pattern
+- Each adapter implements its own specific validators
+- Config templates in `manyagents/templates/` to guide agent config generation
+
+---
+
 ## Future Decisions
 
 This section will be populated as we progress through Phase 2 (Agentic Planner) and Phase 3 (Learning Agent).
@@ -94,3 +192,4 @@ This section will be populated as we progress through Phase 2 (Agentic Planner) 
 |----|-------|--------|-------|
 | 001 | Explicit Algorithm Registry | Adopted | Phase 1 |
 | 002 | Direct Python API over CLI | Adopted | Phase 1 |
+| 003 | Schema-on-Read with Flexible Dicts | Adopted | Phase 1 |

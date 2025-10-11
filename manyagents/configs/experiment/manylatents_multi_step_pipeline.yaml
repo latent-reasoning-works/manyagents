@@ -1,0 +1,50 @@
+# @package _global_
+# Example: ManyLatents Multi-Step Pipeline
+#
+# Demonstrates chaining multiple manyLatents experiments in sequence.
+# Each step receives embeddings from the previous step and computes
+# geometric metrics + visualization.
+#
+# Usage:
+#   python -m manyagents.main experiment=manylatents_multi_step_pipeline
+#
+# Expected Output:
+#   - Step 0: PCA (200 → 50 dims) - wandb run "step0_pca_preprocessing"
+#   - Step 1: UMAP (50 → 2 dims) - wandb run "step1_umap_visualization"
+#   - Geometric metrics logged to wandb for each step
+#   - Embedding plots saved (no CSV files)
+#   - Final embeddings + metrics ready for downstream agents
+
+name: manylatents_multi_step_pipeline
+
+workflow:
+  steps:
+    - name: pca_preprocessing
+      agent: manylatents
+      config:
+        algorithm: pca
+        data: swissroll
+        n_components: 50  # Dimensionality reduction: 200 → 50
+        seed: 42
+        project: manyagents_examples
+        metrics: test_metric  # Use test_metric config (noop for testing)
+        callbacks:
+          embedding:
+            plot_embeddings:
+              _target_: manylatents.callbacks.embedding.plot_embeddings.PlotEmbeddings
+
+    - name: umap_visualization
+      agent: manylatents
+      config:
+        algorithm: umap
+        # input_data is automatically passed from previous step
+        n_components: 2  # Final embedding: 50 → 2
+        seed: 42
+        project: manyagents_examples
+        metrics: test_metric  # Compute geometric metrics on final embedding
+        callbacks:
+          embedding:
+            plot_embeddings:
+              _target_: manylatents.callbacks.embedding.plot_embeddings.PlotEmbeddings
+
+output_dir: outputs/manylatents_multi_step_pipeline

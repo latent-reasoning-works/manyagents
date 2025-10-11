@@ -1114,7 +1114,7 @@ requires-dist = [
 [[package]]
 name = "manylatents"
 version = "0.1.0"
-source = { git = "https://github.com/cmvcordova/manyLatents.git?rev=add_agentic_API#f46336b8b5fc163fd09f6cefa356b4314287ad88" }
+source = { git = "https://github.com/cmvcordova/manyLatents.git?rev=add_agentic_API#cbdc6782bf780bd32bfb3449f7a52de4f2d68127" }
 dependencies = [
     { name = "archetypes" },
     { name = "asttokens" },

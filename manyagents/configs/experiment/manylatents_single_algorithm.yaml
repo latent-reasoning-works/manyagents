@@ -1,0 +1,28 @@
+# @package _global_
+# Example: ManyLatents Single Algorithm
+#
+# Demonstrates manyAgents orchestrating a single manyLatents DR experiment.
+#
+# Usage:
+#   python -m manyagents.main experiment=manylatents_single_algorithm
+#
+# Expected Output:
+#   - Wandb run named: "step0_pca_reduction"
+#   - Geometric metrics logged to wandb
+#   - Embedding plot saved and logged
+
+name: manylatents_single_algorithm
+
+workflow:
+  steps:
+    - name: pca_reduction
+      agent: manylatents
+      config:
+        # Direct algorithm specification
+        algorithm: pca
+        data: swissroll
+        n_components: 2
+        seed: 42
+        project: manyagents_examples
+
+output_dir: outputs/manylatents_single_algorithm

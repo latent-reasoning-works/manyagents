@@ -116,10 +116,16 @@ async def execute_workflow_chain(
         # Get input data from previous step (for in-memory passing)
         input_data = state.get("current_data")
 
+        # Inject step name for logging/tracking if not already specified
+        # This gets passed through to the agent's logging system (e.g., wandb)
+        task_config_with_name = task_config.copy()
+        if "name" not in task_config_with_name:
+            task_config_with_name["name"] = f"step{i}_{step_name}"
+
         # Execute step
         try:
             result = await adapter.run(
-                task_config=task_config,
+                task_config=task_config_with_name,
                 input_files=input_files,
                 input_data=input_data
             )

@@ -8,6 +8,15 @@ from typing import Dict, Any, Optional
 import numpy as np
 
 from .base import AgentAdapter
+from manyagents.types import (
+    validate_task_config,
+    validate_adapter_result,
+    validate_embedding_outputs,
+)
+from manyagents.config_utils import (
+    load_manylatents_experiment,
+    validate_manylatents_config,
+)
 
 log = logging.getLogger(__name__)
 
@@ -36,11 +45,15 @@ class ManyLatentsAdapter(AgentAdapter):
 
         Args:
             task_config: Dictionary with ManyLatents configuration:
-                - algorithm: Algorithm type (e.g., "pca", "phate", "umap")
-                - data: Dataset name (e.g., "swissroll")
-                - pipeline: Optional list of pipeline steps
-                - n_components: Number of components (default: 2)
-                - Other Hydra config overrides
+                Option 1 - Experiment reference:
+                    - experiment: Experiment name (e.g., "hgdp_pca")
+                    - Any additional overrides
+                Option 2 - Direct config:
+                    - algorithm: Algorithm type (e.g., "pca", "phate", "umap")
+                    - data: Dataset name (e.g., "swissroll")
+                    - pipeline: Optional list of pipeline steps
+                    - n_components: Number of components (default: 2)
+                    - Other Hydra config overrides
             input_files: Input data files (reserved for future use)
             input_data: Optional numpy array from previous step (for chaining)
 
@@ -48,19 +61,27 @@ class ManyLatentsAdapter(AgentAdapter):
             Standardized result dictionary with embeddings and metrics
 
         Example:
-            adapter = ManyLatentsAdapter()
+            # Using experiment reference
+            result = await adapter.run(
+                {"experiment": "hgdp_pca", "algorithms": {"latent": {"n_components": 10}}},
+                {}
+            )
+
+            # Using direct config
             result = await adapter.run(
                 {"algorithm": "pca", "data": "swissroll", "n_components": 2},
                 {}
             )
-            embeddings = result['output_files']['embeddings']
         """
         try:
+            # Validate task config
+            task_config = validate_task_config(task_config, self.name)
+
             # Import manylatents API
             from manylatents.api import run
             from hydra.core.global_hydra import GlobalHydra
 
-            log.info(f"ManyLatents API executing with config: {task_config}")
+            log.info(f"ManyLatents adapter executing with task config: {task_config}")
 
             # Clear Hydra's global state before calling manylatents API
             # This is necessary because manyAgents already initialized Hydra
@@ -69,80 +90,106 @@ class ManyLatentsAdapter(AgentAdapter):
                 log.debug("Clearing GlobalHydra instance before calling manylatents API")
                 GlobalHydra.instance().clear()
 
-            # Build configuration
-            overrides = {
-                'debug': True,  # Disable wandb for agent workflows
-                'project': 'manyagents_workflow',
-            }
+            # Build configuration based on whether experiment name is provided
+            if 'experiment' in task_config:
+                # Load experiment and merge overrides
+                experiment_name = task_config.pop('experiment')
+                log.info(f"Loading manylatents experiment: {experiment_name}")
 
-            # Handle dataset
-            if 'data' in task_config:
-                overrides['data'] = task_config['data']
-
-            # Handle pipeline vs single algorithm
-            if 'pipeline' in task_config:
-                # Pipeline mode
-                overrides['pipeline'] = task_config['pipeline']
-            elif 'algorithm' in task_config:
-                # Single algorithm mode
-                algo_name = task_config['algorithm'].lower()
-                n_components = task_config.get('n_components', 2)
-
-                overrides['algorithms'] = {
-                    'latent': {
-                        '_target_': f'manylatents.algorithms.latent.{algo_name}.{algo_name.upper()}Module',
-                        'n_components': n_components
-                    }
+                overrides = load_manylatents_experiment(
+                    experiment_name,
+                    overrides=task_config  # Remaining keys are overrides
+                )
+            else:
+                # Build config from scratch
+                overrides = {
+                    'project': 'manyagents_workflow',
                 }
 
-            # Add any additional overrides from task_config
-            for key, value in task_config.items():
-                if key not in ['algorithm', 'data', 'pipeline', 'n_components']:
-                    overrides[key] = value
+                # Handle dataset
+                if 'data' in task_config:
+                    overrides['data'] = task_config['data']
 
-            log.info(f"Calling manylatents.api.run() with overrides: {overrides}")
+                # Handle pipeline vs single algorithm
+                if 'pipeline' in task_config:
+                    # Pipeline mode
+                    overrides['pipeline'] = task_config['pipeline']
+                elif 'algorithm' in task_config:
+                    # Single algorithm mode
+                    algo_name = task_config['algorithm'].lower()
+                    n_components = task_config.get('n_components', 2)
+
+                    overrides['algorithms'] = {
+                        'latent': {
+                            '_target_': f'manylatents.algorithms.latent.{algo_name}.{algo_name.upper()}Module',
+                            'n_components': n_components
+                        }
+                    }
+
+                # Add any additional overrides from task_config
+                for key, value in task_config.items():
+                    if key not in ['algorithm', 'data', 'pipeline', 'n_components']:
+                        overrides[key] = value
+
+            # Validate manylatents config structure
+            validate_manylatents_config(overrides)
+
+            log.info(f"Calling manylatents.api.run() with validated config")
 
             # Run in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
+            manylatents_result = await loop.run_in_executor(
                 None,
                 lambda: run(input_data=input_data, **overrides)
             )
 
-            # Extract results
-            embeddings = result.get('embeddings')
-            scores = result.get('scores', {})
-            metadata = result.get('metadata', {})
+            # Validate that result is EmbeddingOutputs format
+            embedding_outputs = validate_embedding_outputs(
+                manylatents_result,
+                source=f"{self.name}_result"
+            )
+
+            # Extract key components
+            embeddings = embedding_outputs['embeddings']
+            scores = embedding_outputs.get('scores', {})
+            metadata = embedding_outputs.get('metadata', {})
 
             # Build summary
             summary_parts = [
                 f"ManyLatents successfully executed",
-                f"Output shape: {embeddings.shape if embeddings is not None else 'N/A'}",
+                f"Output shape: {embeddings.shape if hasattr(embeddings, 'shape') else 'N/A'}",
             ]
 
             if scores:
                 metric_summary = ', '.join(f'{k}={v:.3f}' for k, v in list(scores.items())[:3])
                 summary_parts.append(f"Metrics: {metric_summary}")
 
-            return {
+            # Build standardized adapter result
+            adapter_result = {
                 'summary': ' | '.join(summary_parts),
+                'success': True,
+                'embeddings': embedding_outputs,  # Full EmbeddingOutputs dict
                 'output_files': {
-                    'embeddings': embeddings,  # numpy array
+                    'embeddings': embeddings,  # numpy array for convenience
                     'scores': scores,
                     'metadata': metadata
                 },
-                'success': True,
                 'metadata': metadata
             }
 
+            # Validate result structure
+            return validate_adapter_result(adapter_result, self.name)
+
         except Exception as e:
             log.error(f"ManyLatents API call failed: {e}", exc_info=True)
-            return {
+            error_result = {
                 'summary': f"ManyLatents failed: {str(e)}",
-                'output_files': {},
                 'success': False,
+                'output_files': {},
                 'metadata': {
                     'error': str(e),
+                    'error_type': type(e).__name__,
                     'task_config': task_config
                 }
             }
+            return validate_adapter_result(error_result, self.name)

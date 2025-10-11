@@ -6,17 +6,35 @@ These configs are **teaching tools** - they show you how to structure your own e
 
 ## Available Patterns
 
-### `single_algorithm.yaml`
-The simplest workflow: run one algorithm on one dataset.
+### `manylatents_single_algorithm.yaml` ⭐ DEFINITIVE EXAMPLE 1
+The simplest workflow: manyAgents orchestrating a single manyLatents DR experiment.
 
 ```bash
-uv run manyagents experiment=single_algorithm
+python -m manyagents.main experiment=manylatents_single_algorithm
 ```
 
 **Learn from this:**
-- Basic workflow structure
-- How to specify adapter and config
-- Parameter passing to manylatents
+- Basic workflow structure with one step
+- How to specify manylatents adapter
+- Direct algorithm configuration (no experiment reference)
+- Wandb step tagging (run named: "step0_pca_reduction")
+
+### `manylatents_multi_step_pipeline.yaml` ⭐ DEFINITIVE EXAMPLE 2
+Multi-step workflow: chaining PCA → UMAP with in-memory data passing.
+
+```bash
+python -m manyagents.main experiment=manylatents_multi_step_pipeline
+```
+
+**Learn from this:**
+- Multi-step workflows with automatic data chaining
+- Each step creates a separate wandb run
+- Geometric metrics computation
+- Embedding visualization (plots, no CSV)
+- Preparing geometric features for downstream agents
+
+### `single_algorithm.yaml` (Legacy)
+Original simple example - kept for backward compatibility.
 
 ## Creating Your Own Experiments
 
