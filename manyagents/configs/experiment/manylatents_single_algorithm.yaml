@@ -18,11 +18,9 @@ workflow:
     - name: pca_reduction
       agent: manylatents
       config:
-        # Direct algorithm specification
-        algorithm: pca
-        data: swissroll
-        n_components: 2
-        seed: 42
+        # Load manylatents experiment with callbacks/metrics
+        experiment: single_algorithm
+        # Override project name for manyagents context
         project: manyagents_examples
 
 output_dir: outputs/manylatents_single_algorithm

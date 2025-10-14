@@ -1,0 +1,49 @@
+# @package _global_
+# Example: ManyLatents Multi-Step Pipeline with Metrics
+#
+# Demonstrates manyAgents orchestrating a sequential manyLatents workflow
+# with full metrics and wandb logging at each step.
+#
+# Usage:
+#   python -m manyagents.main experiment=manylatents_pipeline_with_metrics
+#
+# Expected Output:
+#   - Step 1: PCA preprocessing (50D) with metrics logged to wandb
+#   - Step 2: UMAP visualization (2D) with metrics logged to wandb
+#   - Two separate wandb runs with full evaluation metrics
+
+name: manylatents_pipeline_with_metrics
+
+workflow:
+  steps:
+    - name: pca_preprocessing
+      agent: manylatents
+      config:
+        # Load experiment with metrics
+        experiment: single_algorithm
+        # Override algorithm params
+        algorithms:
+          latent:
+            n_components: 50  # Reduce to 50D first
+        # Override to use persistent homology (Hydra will load the config)
+        metrics/embedding: persistent_homology
+        project: manyagents_examples
+
+    - name: umap_visualization
+      agent: manylatents
+      config:
+        # Load experiment with metrics
+        experiment: single_algorithm
+        # Override to use UMAP
+        algorithms:
+          latent:
+            _target_: manylatents.algorithms.latent.umap.UMAPModule
+            n_components: 2
+            n_neighbors: 15
+            min_dist: 0.1
+            random_state: 42
+        # Override to use trustworthiness metric
+        metrics/embedding: trustworthiness
+        project: manyagents_examples
+
+output_dir: outputs/manylatents_pipeline_with_metrics

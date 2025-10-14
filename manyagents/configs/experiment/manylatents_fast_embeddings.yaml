@@ -1,0 +1,29 @@
+# @package _global_
+# Example: ManyLatents Fast Embeddings (No Metrics)
+#
+# Demonstrates manyAgents orchestrating manyLatents WITHOUT metrics computation.
+# Use this for fast embedding generation when evaluation isn't needed.
+#
+# Usage:
+#   python -m manyagents.main experiment=manylatents_fast_embeddings
+#
+# Expected Output:
+#   - Wandb run named: "step0_pca_fast"
+#   - Embedding plot saved and logged
+#   - No metrics computation (faster execution)
+
+name: manylatents_fast_embeddings
+
+workflow:
+  steps:
+    - name: pca_fast
+      agent: manylatents
+      config:
+        # Load manylatents experiment with callbacks
+        experiment: single_algorithm
+        # Override metrics to null (skip evaluation)
+        metrics: null
+        # Override project name for manyagents context
+        project: manyagents_examples
+
+output_dir: outputs/manylatents_fast_embeddings

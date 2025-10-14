@@ -100,12 +100,15 @@ def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]
     Unlike {**base, **override}, this recursively merges nested dicts
     instead of replacing them entirely.
 
+    Handles both plain dicts and OmegaConf DictConfigs, converting
+    all values to plain dicts for consistency.
+
     Args:
         base: Base configuration dictionary
         override: Override configuration (takes precedence)
 
     Returns:
-        Merged dictionary
+        Merged dictionary (plain dict, no DictConfigs)
 
     Example:
         base = {"algorithms": {"latent": {"n_components": 2, "seed": 42}}}
@@ -117,7 +120,15 @@ def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]
     result = base.copy()
 
     for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+        # Convert DictConfig to plain dict
+        if isinstance(value, DictConfig):
+            value = OmegaConf.to_container(value, resolve=True, throw_on_missing=False)
+
+        # Check if we need to recursively merge
+        is_result_dict = isinstance(result.get(key), dict)
+        is_value_dict = isinstance(value, dict)
+
+        if key in result and is_result_dict and is_value_dict:
             # Recursively merge nested dicts
             result[key] = deep_merge(result[key], value)
         else:
@@ -218,9 +229,10 @@ def validate_manylatents_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
     # Validate algorithms structure if present
     if has_algorithms:
-        if not isinstance(config["algorithms"], dict):
+        from omegaconf import DictConfig
+        if not isinstance(config["algorithms"], (dict, DictConfig)):
             raise ValueError(
-                f"'algorithms' must be a dict, got {type(config['algorithms'])}"
+                f"'algorithms' must be a dict or DictConfig, got {type(config['algorithms'])}"
             )
 
     logger.debug("manylatents config validation passed")
