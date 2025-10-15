@@ -49,11 +49,11 @@ jobs:
           # - Metrics computation (dataset/embedding/module)
           # - Config overrides work correctly
           # - In-memory data passing between steps
-          # Debug mode disables wandb (faster CI)
+          # Use minimal callbacks (no wandb) for faster CI and cleaner logs
           python -m manyagents.main \
             experiment=manylatents_pipeline_with_metrics \
-            workflow.steps.0.config.debug=true \
-            workflow.steps.1.config.debug=true
+            +workflow.steps.0.config.callbacks.embedding=minimal \
+            +workflow.steps.1.config.callbacks.embedding=minimal
 
       - name: Upload workflow outputs on failure
         if: failure()
