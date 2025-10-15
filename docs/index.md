@@ -7,7 +7,7 @@
 ManyAgents follows a simple **propose → execute → collect** workflow for ML experiment orchestration:
 
 1. **Propose**: Define analysis specifications with parameters and resource requirements
-2. **Execute**: Run experiments via ManyLatents subprocess calls with Hydra overrides  
+2. **Execute**: Run experiments via direct Python API calls to ManyLatents with in-memory data passing
 3. **Collect**: Aggregate results for decision-making and further analysis
 
 ## Architecture
@@ -53,10 +53,13 @@ uv run manyagents --config-name=custom
 
 ## Project Status
 
-✅ **Core Integration**: ManyLatents import and execution working  
-✅ **Configuration**: Hydra setup with YAML configs  
-✅ **Execution Skeleton**: Subprocess calls with parameter overrides  
-🚧 **Sequential Workflows**: Planned for discrete analysis lists  
+✅ **Phase 1 Complete**: The Principled Orchestrator
+✅ **Core Integration**: Direct Python API integration with ManyLatents
+✅ **Configuration**: Hydra-based workflow configuration
+✅ **Multi-Step Pipelines**: In-memory data passing between algorithm steps
+✅ **Metrics System**: Three-level metrics (dataset/embedding/module)
+✅ **CI/CD**: Integration tests validating end-to-end orchestration
+🚧 **Phase 2 Next**: The Agentic Planner (autonomous workflow generation)  
 
 ## Dependencies
 
