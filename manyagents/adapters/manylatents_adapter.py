@@ -161,7 +161,21 @@ class ManyLatentsAdapter(AgentAdapter):
             ]
 
             if scores:
-                metric_summary = ', '.join(f'{k}={v:.3f}' for k, v in list(scores.items())[:3])
+                # Handle metric values: float, tuple[float, array], or dict
+                def extract_scalar(v):
+                    """Extract displayable scalar from metric value."""
+                    if isinstance(v, tuple) and len(v) == 2:
+                        return v[0]  # (scalar, per_sample) -> scalar
+                    elif isinstance(v, dict):
+                        # For structured metrics, try to find a scalar or use length
+                        return v.get('scalar', len(v))
+                    else:
+                        return float(v)  # Already a scalar
+
+                metric_summary = ', '.join(
+                    f'{k}={extract_scalar(v):.3f}'
+                    for k, v in list(scores.items())[:3]
+                )
                 summary_parts.append(f"Metrics: {metric_summary}")
 
             # Build standardized adapter result
