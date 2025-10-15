@@ -25,8 +25,8 @@ workflow:
         algorithms:
           latent:
             n_components: 50  # Reduce to 50D first
-        # Override to use persistent homology (Hydra will load the config)
-        metrics/embedding: persistent_homology
+        # Override to use test_metric (fast, tests all metric groups)
+        metrics: test_metric
         project: manyagents_examples
 
     - name: umap_visualization
@@ -42,8 +42,8 @@ workflow:
             n_neighbors: 15
             min_dist: 0.1
             random_state: 42
-        # Override to use trustworthiness metric
-        metrics/embedding: trustworthiness
+        # Override to use test_metric (fast, tests all metric groups)
+        metrics: test_metric
         project: manyagents_examples
 
 output_dir: outputs/manylatents_pipeline_with_metrics
