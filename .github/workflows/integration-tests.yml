@@ -49,6 +49,7 @@ jobs:
           # - Metrics computation (dataset/embedding/module)
           # - Config overrides work correctly
           # - In-memory data passing between steps
+          # Debug mode disables wandb (faster CI)
           python -m manyagents.main \
             experiment=manylatents_pipeline_with_metrics \
             workflow.steps.0.config.debug=true \

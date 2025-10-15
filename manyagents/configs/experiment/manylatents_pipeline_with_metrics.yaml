@@ -28,6 +28,7 @@ workflow:
         # Override to use test_metric (fast, tests all metric groups)
         metrics: test_metric
         project: manyagents_examples
+        debug: false  # Set to true to disable wandb
 
     - name: umap_visualization
       agent: manylatents
@@ -45,5 +46,6 @@ workflow:
         # Override to use test_metric (fast, tests all metric groups)
         metrics: test_metric
         project: manyagents_examples
+        debug: false  # Set to true to disable wandb
 
 output_dir: outputs/manylatents_pipeline_with_metrics
