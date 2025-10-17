@@ -1,0 +1,42 @@
+# @package _global_
+# Golden Test: PCA 50D with Metrics
+#
+# This is a test config for validating that manyagents correctly orchestrates
+# manylatents without corrupting outputs. Used in Test 1 of the 3-way golden
+# test architecture.
+#
+# Usage:
+#   pytest tests/test_golden.py::test_golden_reference[pca_50d]
+
+name: test_pca_50d
+
+workflow:
+  steps:
+    - name: pca_50d
+      agent: manylatents
+      config:
+        # Load experiment with metrics
+        experiment: single_algorithm
+        # PCA with 50 components (default is PCA, so no _target_ override needed)
+        algorithms:
+          latent:
+            n_components: 50
+            random_state: 42
+        # Use test_metric for fast execution (covers all metric groups)
+        metrics: test_metric
+        # Disable wandb for deterministic testing
+        callbacks: minimal
+        debug: true
+        # Use synthetic dataset for reproducibility
+        dataset: synthetic
+        dataset_config:
+          n_samples: 1000
+          n_features: 100
+          random_state: 42
+
+output_dir: outputs/test_pca_50d
+
+# Test-specific configuration
+test_tolerance:
+  rtol: 1e-10  # Machine precision for deterministic PCA
+  atol: 1e-12

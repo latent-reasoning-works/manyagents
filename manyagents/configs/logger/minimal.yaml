@@ -1,0 +1,12 @@
+# Minimal logger configuration (for CI/tests, no file output)
+
+level: INFO
+
+format: "%(levelname)s - %(message)s"
+
+handlers:
+  console:
+    enabled: true
+    level: INFO
+  file:
+    enabled: false

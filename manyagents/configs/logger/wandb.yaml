@@ -1,0 +1,14 @@
+# Logger configuration for wandb experiments (full logging)
+
+level: INFO
+
+format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+handlers:
+  console:
+    enabled: true
+    level: INFO
+  file:
+    enabled: true
+    level: DEBUG
+    path: logs/manyagents.log
