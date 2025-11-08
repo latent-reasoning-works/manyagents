@@ -168,7 +168,7 @@ pytest --cov=manyagents tests/
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
 - Development workflow
 - Code style guidelines
 - Testing requirements

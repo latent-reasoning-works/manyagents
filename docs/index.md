@@ -187,7 +187,7 @@ See [Geomancy documentation](https://github.com/latent-reasoning-works/geomancy)
 - **[Design Decisions](design_decisions.md)** - Architectural choices and rationale
 - **[Usage Guide](usage.md)** - Examples and workflows
 - **[TODO](TODO.md)** - Future work and pre-release checklist
-- **[Contributing](../CONTRIBUTING.md)** - Development guidelines
+- **[Contributing](CONTRIBUTING.md)** - Development guidelines
 
 ## Technical Stack
 
