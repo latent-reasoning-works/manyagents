@@ -5,6 +5,7 @@ This module provides the core workflow execution logic using the adapter pattern
 """
 import asyncio
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -16,6 +17,25 @@ from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
 # from manyagents.adapters.cellforge_adapter import CellForgeAdapter  # Coming soon
 
 log = logging.getLogger(__name__)
+
+# Import LoggingContext if Geomancer is available
+try:
+    geomancer_path = Path(__file__).resolve().parents[2] / "Geomancer"
+    if geomancer_path.exists() and str(geomancer_path) not in sys.path:
+        sys.path.insert(0, str(geomancer_path))
+    from geomancy.logging_context import LoggingContext
+    GEOMANCER_AVAILABLE = True
+except ImportError:
+    GEOMANCER_AVAILABLE = False
+    log.debug("LoggingContext not available - running in standalone mode")
+
+# Optional WandB import
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    log.debug("WandB not available")
 
 # ============================================================================
 # ADAPTER REGISTRY
@@ -93,6 +113,11 @@ async def execute_workflow_chain(
         log.info(f"Config: {task_config}")
         log.info(f"{'='*60}")
 
+        # Set step context for child processes (if under Geomancer orchestration)
+        if GEOMANCER_AVAILABLE:
+            LoggingContext.set_step_context(i, step_name)
+            log.info(f"Set step context: step_{i}_{step_name}")
+
         # Get adapter class from registry
         if agent_name not in ADAPTER_REGISTRY:
             error_msg = f"Unknown agent '{agent_name}'. Available: {list(ADAPTER_REGISTRY.keys())}"
@@ -152,6 +177,31 @@ async def execute_workflow_chain(
         # Step succeeded - update state
         log.info(f"Step {step_name} completed successfully")
         log.info(f"Summary: {result['summary']}")
+
+        # Log to WandB if available and initialized (by parent)
+        if WANDB_AVAILABLE and wandb.run is not None:
+            try:
+                # Extract metrics from result
+                metrics = result.get("output_files", {}).get("scores", {})
+                embeddings = result.get("output_files", {}).get("embeddings")
+                
+                log_dict = {f"step_{i}/{step_name}/success": 1}
+                
+                # Add scalar metrics
+                if isinstance(metrics, dict):
+                    for key, value in metrics.items():
+                        if isinstance(value, (int, float)):
+                            log_dict[f"step_{i}/{step_name}/{key}"] = value
+                
+                # Add shape information
+                if embeddings is not None and hasattr(embeddings, 'shape'):
+                    log_dict[f"step_{i}/{step_name}/n_samples"] = embeddings.shape[0]
+                    log_dict[f"step_{i}/{step_name}/n_components"] = embeddings.shape[1]
+                
+                wandb.log(log_dict, step=i)
+                log.info(f"Logged metrics to WandB for step {i}")
+            except Exception as e:
+                log.warning(f"Failed to log to WandB: {e}")
 
         # Update state for next step
         state["steps_completed"].append({
