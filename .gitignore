@@ -51,3 +51,6 @@ CLAUDE.md
 
 # AI context files (personal)
 CLAUDE.md
+
+# Auto-generated metric registry
+manyagents/adapters/data/metric_registry.json
