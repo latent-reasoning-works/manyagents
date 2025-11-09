@@ -238,6 +238,10 @@ class ManyLatentsAdapter(AgentAdapter):
                     elif isinstance(v, dict):
                         # For structured metrics, try to find a scalar or use length
                         return v.get('scalar', len(v))
+                    elif hasattr(v, '__len__') and not isinstance(v, (str, bytes)):
+                        # Array-like (numpy array, list, etc.) - take mean
+                        import numpy as np
+                        return float(np.mean(v))
                     else:
                         return float(v)  # Already a scalar
 
