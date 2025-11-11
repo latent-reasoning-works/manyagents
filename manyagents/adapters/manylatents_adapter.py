@@ -282,6 +282,7 @@ class ManyLatentsAdapter(AgentAdapter):
                 from omegaconf import OmegaConf
                 from pathlib import Path
                 import os
+                import tempfile
 
                 # Find manyLatents config directory
                 manylatents_config_dir = Path(os.path.dirname(__import__('manylatents').__file__)) / 'configs'
@@ -303,16 +304,35 @@ class ManyLatentsAdapter(AgentAdapter):
 
                                 # Extract the callback config (structure: {callback_name: {_target_: ...}})
                                 if callback_name in callback_cfg:
-                                    callback_config = OmegaConf.to_container(callback_cfg[callback_name], resolve=True)
+                                    # Get the config as OmegaConf object first (don't resolve yet)
+                                    callback_config_obj = callback_cfg[callback_name]
+
+                                    # For PlotEmbeddings, override interpolated fields BEFORE resolving
+                                    # This avoids Hydra interpolation issues
+                                    if callback_name == 'plot_embeddings':
+                                        # Use step info for unique directories and names
+                                        if step_idx is not None and step_name is not None:
+                                            save_dir = tempfile.mkdtemp(prefix=f"geomancer_step_{step_idx}_{step_name}_")
+                                            exp_name = f"step_{step_idx}_{step_name}"
+                                        else:
+                                            save_dir = tempfile.mkdtemp(prefix="geomancer_callbacks_")
+                                            exp_name = "callback_plot"
+
+                                        # Override interpolated fields in OmegaConf object before resolution
+                                        if 'save_dir' in callback_config_obj:
+                                            OmegaConf.update(callback_config_obj, "save_dir", save_dir, merge=False)
+                                        if 'experiment_name' in callback_config_obj:
+                                            OmegaConf.update(callback_config_obj, "experiment_name", exp_name, merge=False)
+
+                                        log.info(f"  📁 Set save_dir: {save_dir}")
+                                        log.info(f"  📝 Set experiment_name: {exp_name}")
+
+                                    # Now resolve to container (save_dir already set if needed)
+                                    callback_config = OmegaConf.to_container(callback_config_obj, resolve=True)
 
                                     # Apply user overrides
                                     if callback_params:
                                         callback_config.update(callback_params)
-
-                                    # IMPORTANT: Force offline mode for orchestrated execution
-                                    if logging_mode == 'collect_only' and callback_name == 'plot_embeddings':
-                                        callback_config['enable_wandb_upload'] = False
-                                        log.info(f"  🔒 Forced offline mode for {callback_name} (orchestrated)")
 
                                     transformed_callbacks[group][callback_name] = callback_config
                                     log.info(f"  ✓ Loaded '{callback_name}' from {config_path.name}")
@@ -342,6 +362,14 @@ class ManyLatentsAdapter(AgentAdapter):
             # CRITICAL: Run manyLatents in offline mode when collecting for aggregation
             # This prevents WandB conflicts and lets us aggregate metrics later
             logging_mode = logging_config.get('logging_mode', 'immediate')
+
+            # Force offline mode for callbacks in orchestrated execution
+            if logging_mode == 'collect_only' and 'callbacks' in overrides:
+                for group in overrides['callbacks']:
+                    for callback_name in overrides['callbacks'][group]:
+                        if callback_name == 'plot_embeddings':
+                            overrides['callbacks'][group][callback_name]['enable_wandb_upload'] = False
+                            log.info(f"  🔒 Forced offline mode for {callback_name}")
 
             if logging_mode == 'collect_only':
                 # Expert workflow: Disable WandB in manyLatents (callbacks already set to offline mode above)
