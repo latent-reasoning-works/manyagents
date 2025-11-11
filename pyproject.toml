@@ -45,4 +45,4 @@ version = "0.0.1"
 requires-dist = ["numpy>=1.25"]
 
 [tool.uv.sources]
-manylatents = { path = "/network/scratch/c/cesar.valdez/manyLatents", editable = true }
+manylatents = { git = "https://github.com/latent-reasoning-works/manylatents", branch = "main" }
