@@ -17,6 +17,8 @@ from manyagents.adapters.openai_adapter import OpenAIAdapter
 from manyagents.adapters.cellforge_adapter import CellForgeAdapter
 from manyagents.adapters.biomni_adapter import BiomniAdapter
 from manyagents.adapters.kosmos_adapter import KosmosAdapter
+from manyagents.adapters.claude_adapter import ClaudeAdapter
+from manyagents.adapters.local_llm_adapter import LocalLLMAdapter
 # from manyagents.adapters.biodiscovery_adapter import BioDiscoveryAgentAdapter  # Coming soon
 
 log = logging.getLogger(__name__)
@@ -52,6 +54,8 @@ ADAPTER_REGISTRY = {
     "cellforge": CellForgeAdapter,
     "biomni": BiomniAdapter,
     "kosmos": KosmosAdapter,
+    "claude": ClaudeAdapter,
+    "local_llm": LocalLLMAdapter,
     # "biodiscovery": BioDiscoveryAgentAdapter,  # Placeholder for Phase 2
 }
 

@@ -1,0 +1,21 @@
+{
+  "test_id": "golden_trajectory",
+  "description": "Golden test to validate pipeline invariance experiment infrastructure",
+  "system_prompt": "You are a computational biology expert advising on single-cell RNA-seq analysis. Provide specific method recommendations based on the data structure described. Be concise and focus on the most appropriate analytical methods.",
+  "scenarios": {
+    "trajectory": {
+      "text": "I have single-cell RNA-seq data from mouse embryonic stem cells differentiating into cardiomyocytes over 14 days. I collected cells at days 0, 3, 7, 10, and 14. I need to identify cell populations and understand the structure of my data. What analysis pipeline should I follow?",
+      "expected_geometry": "branching_trajectory",
+      "ground_truth_methods": ["pseudotime", "trajectory_inference", "rna_velocity", "diffusion_map", "monocle", "slingshot", "paga", "scvelo", "velocyto", "cellrank", "dpt"],
+      "failure_indicators": ["leiden", "louvain", "clustering"]
+    }
+  },
+  "target_systems": ["claude", "openai", "local_llm"],
+  "model_overrides": {
+    "local_llm": "llama-3.1-8b"
+  },
+  "pass_criteria": {
+    "must_include_one_of": ["trajectory", "pseudotime", "differentiation", "temporal", "monocle", "slingshot", "velocity"],
+    "must_not_have_primary": ["clustering", "leiden", "louvain"]
+  }
+}
