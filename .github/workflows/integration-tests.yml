@@ -41,7 +41,7 @@ jobs:
           uv pip install -e . --no-deps
 
       - name: Run smoke tests
-        run: uv run pytest tests/test_smoke.py -v
+        run: .venv/bin/pytest tests/test_smoke.py -v
 
       - name: Run mock experiment
-        run: uv run python -m manyagents.main experiment=test_wandb
+        run: .venv/bin/python -m manyagents.main experiment=test_wandb
