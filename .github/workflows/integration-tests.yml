@@ -31,12 +31,17 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install without private deps (manylatents, biomni)
-          # TODO: Use `uv sync` when repos are public
-          uv sync --no-install-package manylatents --no-install-package biomni
+          # Create venv and install core deps only (skip private git repos)
+          # TODO: Use `uv sync` when manylatents/biomni repos are public
+          uv venv
+          uv pip install pydantic hydra-core hydra-submitit-launcher numpy \
+            openai anthropic transformers accelerate \
+            pytest pytest-asyncio
+          # Install manyagents in editable mode (without resolving optional deps)
+          uv pip install -e . --no-deps
 
       - name: Run smoke tests
         run: uv run pytest tests/test_smoke.py -v
 
       - name: Run mock experiment
-        run: uv run manyagents experiment=test_wandb
+        run: uv run python -m manyagents.main experiment=test_wandb
