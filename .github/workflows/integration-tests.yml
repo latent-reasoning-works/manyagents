@@ -36,7 +36,7 @@ jobs:
           uv venv
           uv pip install pydantic hydra-core hydra-submitit-launcher numpy \
             openai anthropic transformers accelerate \
-            pytest pytest-asyncio
+            pytest pytest-asyncio pandas omegaconf
           # Install manyagents in editable mode (without resolving optional deps)
           uv pip install -e . --no-deps
 
