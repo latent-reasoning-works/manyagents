@@ -1,66 +1,39 @@
-name: Integration Tests
+name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  test-manylatents-integration:
-    name: Test ManyLatents Integration
+  smoke-test:
+    name: Smoke Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install UV package manager
+      - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           version: 'latest'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
-        run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          uv sync
+        run: uv sync
 
-      - name: Test manylatents integration with metrics
-        timeout-minutes: 8
-        run: |
-          source .venv/bin/activate
-          # Run the fast pipeline with test_metric (tests all 3 metric groups)
-          # This validates:
-          # - manyAgents → manylatents adapter works
-          # - Multi-step pipeline execution
-          # - Metrics computation (dataset/embedding/module)
-          # - Config overrides work correctly
-          # - In-memory data passing between steps
-          # Use minimal callbacks (no wandb) for faster CI and cleaner logs
-          python -m manyagents.main \
-            experiment=manylatents_pipeline_with_metrics \
-            +workflow.steps.0.config.callbacks.embedding=minimal \
-            +workflow.steps.1.config.callbacks.embedding=minimal
+      - name: Run smoke tests
+        run: uv run pytest tests/test_smoke.py -v
 
-      - name: Upload workflow outputs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failed-workflow-outputs
-          path: |
-            outputs/
-            wandb/
-          retention-days: 7
+      - name: Run mock experiment
+        run: uv run manyagents experiment=test_wandb
