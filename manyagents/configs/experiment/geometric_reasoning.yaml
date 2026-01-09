@@ -1,0 +1,214 @@
+# @package _global_
+# Geometric reasoning experiment: 3 scenarios × 3 conditions = 9 prompts
+#
+# Tests whether LLMs can reason about data geometry:
+# - Condition A: Experiment-only (biology, no geometric hints)
+# - Condition B: Experiment + Geometry (biology with structural language)
+# - Condition C: Geometry-only (abstract, domain-agnostic)
+#
+# Usage:
+#   manyagents experiment=geometric_reasoning
+#   manyagents experiment=geometric_reasoning wandb.enabled=true
+#   manyagents experiment=geometric_reasoning active_agents=[claude,openai]
+
+name: geometric_reasoning_suite
+
+wandb:
+  tags:
+    - geometric-reasoning
+    - 3x3-matrix
+
+defaults:
+  - /agent@agents.local_llm: local_llm
+  - /agent@agents.claude: claude
+  - /agent@agents.openai: openai
+  - _self_
+
+system_prompt: >
+  You are a computational biology expert advising on single-cell analysis.
+  Based on the data description provided, recommend the most appropriate
+  analytical methods. Be specific about which algorithms or tools you would use.
+
+active_agents:
+  - local_llm
+
+# All 9 scenarios: 3 biology domains × 3 information conditions
+scenarios:
+  # === IMMUNOLOGY (Discrete Clusters) ===
+  immunology_A:
+    text: |
+      I'm analyzing peripheral blood mononuclear cells (PBMCs) from healthy donors
+      using 10x Genomics single-cell RNA-seq. We collected samples from 6 individuals
+      and sequenced around 50,000 cells total. The goal is to characterize the immune
+      cell composition and identify any rare populations.
+
+      After quality control and normalization, I ran PCA and UMAP. Now I need to
+      figure out the best approach to analyze this data. What methods would you
+      recommend for identifying the different cell types present?
+    expected_geometry: discrete_clusters
+    ground_truth_methods: [leiden, louvain, kmeans, spectral_clustering, phenograph]
+    failure_indicators: [trajectory_inference, pseudotime, monocle, slingshot]
+    condition: A
+    domain: immunology
+
+  immunology_B:
+    text: |
+      I'm analyzing peripheral blood mononuclear cells (PBMCs) from healthy donors
+      using 10x Genomics single-cell RNA-seq. We collected samples from 6 individuals
+      and sequenced around 50,000 cells total. The goal is to characterize the immune
+      cell composition and identify any rare populations.
+
+      After quality control and normalization, I ran PCA and UMAP. The visualization
+      shows what look like distinct, well-separated groups of cells - probably the
+      major immune populations like T cells, B cells, monocytes, and NK cells. The
+      boundaries between groups seem pretty clean.
+
+      What methods would you recommend for identifying and annotating these distinct
+      cell populations?
+    expected_geometry: discrete_clusters
+    ground_truth_methods: [leiden, louvain, kmeans, spectral_clustering, phenograph]
+    failure_indicators: [trajectory_inference, pseudotime, monocle, slingshot]
+    condition: B
+    domain: immunology
+
+  immunology_C:
+    text: |
+      I have a high-dimensional dataset (50,000 samples, ~2000 features after
+      preprocessing) that I've reduced to 50 PCA components. When I visualize
+      with UMAP, the data appears to form several distinct, well-separated groups
+      with clear boundaries between them. There's minimal overlap between groups
+      and the structure looks like discrete clusters rather than any continuous
+      variation.
+
+      What unsupervised methods would be most appropriate for identifying and
+      characterizing these distinct groups in my data?
+    expected_geometry: discrete_clusters
+    ground_truth_methods: [leiden, louvain, kmeans, spectral_clustering, phenograph]
+    failure_indicators: [trajectory_inference, pseudotime, monocle, slingshot]
+    condition: C
+    domain: abstract
+
+  # === CANCER (Branching Trajectory) ===
+  cancer_A:
+    text: |
+      We're studying epithelial-to-mesenchymal transition (EMT) in breast cancer
+      cell lines. We treated MCF7 cells with TGF-beta over a time course (0, 2, 4,
+      8, 12, 24, 48 hours) and performed single-cell RNA-seq at each timepoint,
+      capturing about 3,000 cells per timepoint.
+
+      We're interested in understanding how cells transition from the epithelial
+      state and what different mesenchymal phenotypes emerge. Some cells seem to
+      become more invasive while others show different characteristics.
+
+      After standard preprocessing, what analytical approach would you recommend
+      to characterize the EMT process in this dataset?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [slingshot, monocle3, paga, cellrank, diffusion_pseudotime, palantir]
+    failure_indicators: [clustering, cluster_analysis, leiden, louvain, kmeans]
+    condition: A
+    domain: cancer
+
+  cancer_B:
+    text: |
+      We're studying epithelial-to-mesenchymal transition (EMT) in breast cancer
+      cell lines. We treated MCF7 cells with TGF-beta over a time course (0, 2, 4,
+      8, 12, 24, 48 hours) and performed single-cell RNA-seq at each timepoint,
+      capturing about 3,000 cells per timepoint.
+
+      We're interested in understanding how cells transition from the epithelial
+      state and what different mesenchymal phenotypes emerge. Looking at the UMAP,
+      it seems like cells start in one region and then branch out into different
+      directions over time - suggesting multiple possible fates after EMT initiation.
+
+      What methods would be best for characterizing this branching differentiation
+      process and identifying the different trajectories cells can take?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [slingshot, monocle3, paga, cellrank, diffusion_pseudotime, palantir]
+    failure_indicators: [clustering, cluster_analysis, leiden, louvain, kmeans]
+    condition: B
+    domain: cancer
+
+  cancer_C:
+    text: |
+      I have time-series single-cell data (~20,000 samples across 7 timepoints)
+      where the dimensionality reduction shows what appears to be a branching
+      structure. Early timepoint samples cluster together, but as time progresses,
+      the data fans out into what looks like 2-3 distinct branches or paths.
+
+      The structure resembles a tree rooted at the early timepoints, with
+      bifurcations leading to different terminal states. I want to characterize
+      the progression along these branches and identify where the key decision
+      points occur.
+
+      What methods would be appropriate for analyzing this tree-like trajectory
+      structure?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [slingshot, monocle3, paga, cellrank, diffusion_pseudotime, palantir]
+    failure_indicators: [clustering, cluster_analysis, leiden, louvain, kmeans]
+    condition: C
+    domain: abstract
+
+  # === DEVELOPMENTAL (Continuous Manifold) ===
+  developmental_A:
+    text: |
+      We're studying neural progenitor cell differentiation in mouse embryonic
+      brain organoids. We collected single-cell RNA-seq data from organoids at
+      day 30 of culture, capturing around 15,000 cells. The organoids contain
+      proliferating progenitors as well as cells at various stages of neuronal
+      differentiation.
+
+      We know that both cell cycle state and differentiation progress are important
+      biological axes in this system. We'd like to understand the relationship
+      between proliferation and differentiation in these cells.
+
+      What computational approaches would you recommend for analyzing this data?
+    expected_geometry: continuous_manifold
+    ground_truth_methods: [phate, diffusion_map, umap, isomap, force_atlas]
+    failure_indicators: [clustering, cluster_analysis, discrete_groups, leiden, louvain]
+    condition: A
+    domain: developmental
+
+  developmental_B:
+    text: |
+      We're studying neural progenitor cell differentiation in mouse embryonic
+      brain organoids. We collected single-cell RNA-seq data from organoids at
+      day 30 of culture, capturing around 15,000 cells. The organoids contain
+      proliferating progenitors as well as cells at various stages of neuronal
+      differentiation.
+
+      Looking at the data after dimensionality reduction, cells seem to vary
+      smoothly along two main axes - one that looks like it corresponds to cell
+      cycle phase (with cells distributed in a circular pattern) and another that
+      seems to capture differentiation state (more linear). The cells don't form
+      distinct clusters but rather spread continuously across what looks like a
+      2D surface.
+
+      What methods would be best for characterizing this continuous variation and
+      understanding how cell cycle and differentiation interact?
+    expected_geometry: continuous_manifold
+    ground_truth_methods: [phate, diffusion_map, umap, isomap, force_atlas]
+    failure_indicators: [clustering, cluster_analysis, discrete_groups, leiden, louvain]
+    condition: B
+    domain: developmental
+
+  developmental_C:
+    text: |
+      I have high-dimensional data (~15,000 samples, thousands of features) that
+      appears to lie on a low-dimensional manifold. Dimensionality estimation
+      suggests the intrinsic dimensionality is around 2.
+
+      When I visualize the data, samples don't form discrete clusters. Instead,
+      they spread continuously across what looks like a 2D surface embedded in
+      the high-dimensional space. One axis of variation appears periodic or
+      circular, while another shows more linear/gradient-like variation.
+
+      What manifold learning or dimensionality reduction approaches would be
+      most appropriate for characterizing this continuous, low-dimensional
+      structure in my data?
+    expected_geometry: continuous_manifold
+    ground_truth_methods: [phate, diffusion_map, umap, isomap, force_atlas]
+    failure_indicators: [clustering, cluster_analysis, discrete_groups, leiden, louvain]
+    condition: C
+    domain: abstract
+
+output_dir: outputs/geometric_reasoning/${name}_${now:%Y-%m-%d_%H-%M-%S}

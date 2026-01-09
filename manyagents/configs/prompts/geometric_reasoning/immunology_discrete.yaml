@@ -1,0 +1,74 @@
+# Immunology scenario: Discrete cell type clusters
+# Ground truth geometry: Well-separated clusters with clear boundaries
+
+scenario_name: immunology_discrete
+domain: immunology
+
+geometry:
+  type: discrete_clusters
+  expected_structure: >
+    Data forms well-separated clusters corresponding to distinct immune cell types.
+    Boundaries between clusters are sharp with minimal overlap. Each cluster
+    represents a terminally differentiated cell state (T cells, B cells, NK cells,
+    monocytes, etc.) with stable transcriptional programs.
+
+ground_truth:
+  appropriate_methods:
+    - leiden
+    - louvain
+    - kmeans
+    - spectral_clustering
+    - phenograph
+  inappropriate_methods:
+    - monocle
+    - slingshot
+    - diffusion_pseudotime
+    - rna_velocity
+  failure_indicators:
+    - trajectory_inference
+    - pseudotime
+
+conditions:
+  A:
+    name: experiment_only
+    description: "Biological context without geometric information"
+    prompt: |
+      I'm analyzing peripheral blood mononuclear cells (PBMCs) from healthy donors
+      using 10x Genomics single-cell RNA-seq. We collected samples from 6 individuals
+      and sequenced around 50,000 cells total. The goal is to characterize the immune
+      cell composition and identify any rare populations.
+
+      After quality control and normalization, I ran PCA and UMAP. Now I need to
+      figure out the best approach to analyze this data. What methods would you
+      recommend for identifying the different cell types present?
+
+  B:
+    name: experiment_plus_geometry
+    description: "Biological context with natural geometric language"
+    prompt: |
+      I'm analyzing peripheral blood mononuclear cells (PBMCs) from healthy donors
+      using 10x Genomics single-cell RNA-seq. We collected samples from 6 individuals
+      and sequenced around 50,000 cells total. The goal is to characterize the immune
+      cell composition and identify any rare populations.
+
+      After quality control and normalization, I ran PCA and UMAP. The visualization
+      shows what look like distinct, well-separated groups of cells - probably the
+      major immune populations like T cells, B cells, monocytes, and NK cells. The
+      boundaries between groups seem pretty clean.
+
+      What methods would you recommend for identifying and annotating these distinct
+      cell populations?
+
+  C:
+    name: geometry_only
+    description: "Abstract geometric description, no domain context"
+    prompt: |
+      I have a high-dimensional dataset (50,000 samples, ~2000 features after
+      preprocessing) that I've reduced to 50 PCA components. When I visualize
+      with UMAP, the data appears to form several distinct, well-separated groups
+      with clear boundaries between them. There's minimal overlap between groups
+      and the structure looks like discrete clusters rather than any continuous
+      variation.
+
+      What unsupervised methods would be most appropriate for identifying and
+      characterizing these distinct groups in my data?

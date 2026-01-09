@@ -1,0 +1,80 @@
+# Cancer scenario: Branching trajectory (EMT with multiple fates)
+# Ground truth geometry: Tree-like structure with bifurcations
+
+scenario_name: cancer_trajectory
+domain: cancer_biology
+
+geometry:
+  type: branching_trajectory
+  expected_structure: >
+    Data forms a tree-like structure rooted at epithelial cells, branching into
+    multiple mesenchymal fates. The epithelial-to-mesenchymal transition (EMT)
+    is captured as a continuous process with cells at various stages. Key branch
+    points represent fate decisions toward different invasive phenotypes.
+
+ground_truth:
+  appropriate_methods:
+    - slingshot
+    - monocle3
+    - paga
+    - cellrank
+    - diffusion_pseudotime
+    - palantir
+  inappropriate_methods:
+    - leiden
+    - louvain
+    - kmeans
+  failure_indicators:
+    - clustering
+    - cluster_analysis
+
+conditions:
+  A:
+    name: experiment_only
+    description: "Biological context without geometric information"
+    prompt: |
+      We're studying epithelial-to-mesenchymal transition (EMT) in breast cancer
+      cell lines. We treated MCF7 cells with TGF-beta over a time course (0, 2, 4,
+      8, 12, 24, 48 hours) and performed single-cell RNA-seq at each timepoint,
+      capturing about 3,000 cells per timepoint.
+
+      We're interested in understanding how cells transition from the epithelial
+      state and what different mesenchymal phenotypes emerge. Some cells seem to
+      become more invasive while others show different characteristics.
+
+      After standard preprocessing, what analytical approach would you recommend
+      to characterize the EMT process in this dataset?
+
+  B:
+    name: experiment_plus_geometry
+    description: "Biological context with natural geometric language"
+    prompt: |
+      We're studying epithelial-to-mesenchymal transition (EMT) in breast cancer
+      cell lines. We treated MCF7 cells with TGF-beta over a time course (0, 2, 4,
+      8, 12, 24, 48 hours) and performed single-cell RNA-seq at each timepoint,
+      capturing about 3,000 cells per timepoint.
+
+      We're interested in understanding how cells transition from the epithelial
+      state and what different mesenchymal phenotypes emerge. Looking at the UMAP,
+      it seems like cells start in one region and then branch out into different
+      directions over time - suggesting multiple possible fates after EMT initiation.
+
+      What methods would be best for characterizing this branching differentiation
+      process and identifying the different trajectories cells can take?
+
+  C:
+    name: geometry_only
+    description: "Abstract geometric description, no domain context"
+    prompt: |
+      I have time-series single-cell data (~20,000 samples across 7 timepoints)
+      where the dimensionality reduction shows what appears to be a branching
+      structure. Early timepoint samples cluster together, but as time progresses,
+      the data fans out into what looks like 2-3 distinct branches or paths.
+
+      The structure resembles a tree rooted at the early timepoints, with
+      bifurcations leading to different terminal states. I want to characterize
+      the progression along these branches and identify where the key decision
+      points occur.
+
+      What methods would be appropriate for analyzing this tree-like trajectory
+      structure?

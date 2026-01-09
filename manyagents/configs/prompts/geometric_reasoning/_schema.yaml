@@ -1,0 +1,52 @@
+# Schema for geometric reasoning prompt scenarios
+# Each scenario file should follow this structure
+
+# Scenario metadata
+scenario_name: string  # e.g., "immunology_discrete"
+domain: string         # e.g., "immunology", "cancer", "developmental"
+
+# Geometric ground truth
+geometry:
+  type: string         # "discrete_clusters" | "branching_trajectory" | "continuous_manifold"
+  expected_structure: string  # Natural language description of the structure
+
+# Methods that would be appropriate for this geometry
+ground_truth:
+  appropriate_methods:
+    - method_name      # Methods that match the geometry
+  inappropriate_methods:
+    - method_name      # Methods that would be wrong choices
+  failure_indicators:
+    - method_name      # Strong signals of ignoring geometry
+
+# Three conditions varying information level
+conditions:
+  # Condition A: Experiment-only (biology, no geometric hints)
+  # - Describes the biological experiment
+  # - Uses domain-specific terminology
+  # - No mention of data structure/geometry
+  A:
+    name: "experiment_only"
+    description: "Biological context without geometric information"
+    prompt: |
+      [Biologist's question about their experiment]
+
+  # Condition B: Experiment + Geometry (biology with structural hints)
+  # - Same biological context as A
+  # - Naturally incorporates geometric language
+  # - "continuous differentiation", "distinct populations", etc.
+  B:
+    name: "experiment_plus_geometry"
+    description: "Biological context with natural geometric language"
+    prompt: |
+      [Same experiment, but mentions structure naturally]
+
+  # Condition C: Geometry-only (abstract, domain-agnostic)
+  # - Strips all biological context
+  # - Pure data science question
+  # - "I have high-dimensional data with X structure..."
+  C:
+    name: "geometry_only"
+    description: "Abstract geometric description, no domain context"
+    prompt: |
+      [Pure data structure question]

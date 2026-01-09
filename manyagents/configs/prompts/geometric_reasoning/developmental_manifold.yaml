@@ -1,0 +1,85 @@
+# Developmental scenario: Continuous manifold (cell cycle + differentiation)
+# Ground truth geometry: 2D manifold with periodic (cycle) and linear (diff) axes
+
+scenario_name: developmental_manifold
+domain: developmental_biology
+
+geometry:
+  type: continuous_manifold
+  expected_structure: >
+    Data lies on a 2D manifold combining two orthogonal biological processes:
+    cell cycle (periodic/circular) and differentiation (linear gradient). Cells
+    are distributed continuously across this surface rather than in discrete
+    clusters. The intrinsic dimensionality is 2 despite the high ambient dimension.
+
+ground_truth:
+  appropriate_methods:
+    - phate
+    - diffusion_map
+    - umap
+    - isomap
+    - force_atlas
+    - intrinsic_dimensionality
+  inappropriate_methods:
+    - leiden
+    - louvain
+    - kmeans
+    - slingshot
+  failure_indicators:
+    - clustering
+    - cluster_analysis
+    - discrete_groups
+
+conditions:
+  A:
+    name: experiment_only
+    description: "Biological context without geometric information"
+    prompt: |
+      We're studying neural progenitor cell differentiation in mouse embryonic
+      brain organoids. We collected single-cell RNA-seq data from organoids at
+      day 30 of culture, capturing around 15,000 cells. The organoids contain
+      proliferating progenitors as well as cells at various stages of neuronal
+      differentiation.
+
+      We know that both cell cycle state and differentiation progress are important
+      biological axes in this system. We'd like to understand the relationship
+      between proliferation and differentiation in these cells.
+
+      What computational approaches would you recommend for analyzing this data?
+
+  B:
+    name: experiment_plus_geometry
+    description: "Biological context with natural geometric language"
+    prompt: |
+      We're studying neural progenitor cell differentiation in mouse embryonic
+      brain organoids. We collected single-cell RNA-seq data from organoids at
+      day 30 of culture, capturing around 15,000 cells. The organoids contain
+      proliferating progenitors as well as cells at various stages of neuronal
+      differentiation.
+
+      Looking at the data after dimensionality reduction, cells seem to vary
+      smoothly along two main axes - one that looks like it corresponds to cell
+      cycle phase (with cells distributed in a circular pattern) and another that
+      seems to capture differentiation state (more linear). The cells don't form
+      distinct clusters but rather spread continuously across what looks like a
+      2D surface.
+
+      What methods would be best for characterizing this continuous variation and
+      understanding how cell cycle and differentiation interact?
+
+  C:
+    name: geometry_only
+    description: "Abstract geometric description, no domain context"
+    prompt: |
+      I have high-dimensional data (~15,000 samples, thousands of features) that
+      appears to lie on a low-dimensional manifold. Dimensionality estimation
+      suggests the intrinsic dimensionality is around 2.
+
+      When I visualize the data, samples don't form discrete clusters. Instead,
+      they spread continuously across what looks like a 2D surface embedded in
+      the high-dimensional space. One axis of variation appears periodic or
+      circular, while another shows more linear/gradient-like variation.
+
+      What manifold learning or dimensionality reduction approaches would be
+      most appropriate for characterizing this continuous, low-dimensional
+      structure in my data?
