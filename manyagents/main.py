@@ -31,17 +31,29 @@ try:
 except ImportError:
     pass  # shop not installed, cluster launchers won't be available
 
-from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
 from manyagents.adapters.openai_adapter import OpenAIAdapter
 from manyagents.adapters.cellforge_adapter import CellForgeAdapter
-from manyagents.adapters.biomni_adapter import BiomniAdapter
 from manyagents.adapters.kosmos_adapter import KosmosAdapter
 from manyagents.adapters.claude_adapter import ClaudeAdapter
 from manyagents.adapters.local_llm_adapter import LocalLLMAdapter
 from manyagents.adapters.mock_adapter import MockAdapter
-# from manyagents.adapters.biodiscovery_adapter import BioDiscoveryAgentAdapter  # Coming soon
 
 log = logging.getLogger(__name__)
+
+# Optional imports for private repos (TODO: make required when public)
+try:
+    from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
+    MANYLATENTS_AVAILABLE = True
+except ImportError:
+    ManyLatentsAdapter = None
+    MANYLATENTS_AVAILABLE = False
+
+try:
+    from manyagents.adapters.biomni_adapter import BiomniAdapter
+    BIOMNI_AVAILABLE = True
+except ImportError:
+    BiomniAdapter = None
+    BIOMNI_AVAILABLE = False
 
 # Import LoggingContext if Geomancer is available
 try:
@@ -69,16 +81,19 @@ except ImportError:
 # This is the bridge between declarative configs and Python implementations
 
 ADAPTER_REGISTRY = {
-    "manylatents": ManyLatentsAdapter,
     "openai": OpenAIAdapter,
     "cellforge": CellForgeAdapter,
-    "biomni": BiomniAdapter,
     "kosmos": KosmosAdapter,
     "claude": ClaudeAdapter,
     "local_llm": LocalLLMAdapter,
     "mock": MockAdapter,
-    # "biodiscovery": BioDiscoveryAgentAdapter,  # Placeholder for Phase 2
 }
+
+# Add optional adapters if available (TODO: make required when repos are public)
+if MANYLATENTS_AVAILABLE:
+    ADAPTER_REGISTRY["manylatents"] = ManyLatentsAdapter
+if BIOMNI_AVAILABLE:
+    ADAPTER_REGISTRY["biomni"] = BiomniAdapter
 
 
 # ============================================================================

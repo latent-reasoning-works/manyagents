@@ -30,7 +30,10 @@ jobs:
           version: 'latest'
 
       - name: Install dependencies
-        run: uv sync
+        run: |
+          # Install without private deps (manylatents, biomni)
+          # TODO: Use `uv sync` when repos are public
+          uv sync --no-install-package manylatents --no-install-package biomni
 
       - name: Run smoke tests
         run: uv run pytest tests/test_smoke.py -v

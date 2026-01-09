@@ -3,9 +3,16 @@ Smoke tests for CI - verify basic functionality works.
 
 These tests are fast and don't require API keys or GPUs.
 Run with: pytest tests/test_smoke.py -v
+
+NOTE: manylatents tests are skipped in CI until the repo is public.
+TODO: Remove skip markers when manylatents is public.
 """
 
+import os
 import pytest
+
+# Skip manylatents tests in CI (private repo)
+SKIP_MANYLATENTS = os.environ.get("CI") == "true"
 
 
 class TestAdapterImports:
@@ -15,6 +22,7 @@ class TestAdapterImports:
         from manyagents.adapters.base import AgentAdapter
         assert AgentAdapter is not None
 
+    @pytest.mark.skipif(SKIP_MANYLATENTS, reason="manylatents is private")
     def test_import_manylatents(self):
         from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
         assert ManyLatentsAdapter is not None
@@ -76,9 +84,18 @@ class TestMockAdapterExecution:
 class TestRegistryLoads:
     """Verify adapter registry loads correctly."""
 
+    @pytest.mark.skipif(SKIP_MANYLATENTS, reason="manylatents is private")
     def test_registry_has_adapters(self):
         from manyagents.main import ADAPTER_REGISTRY
 
         expected = ["mock", "claude", "openai", "local_llm", "manylatents"]
+        for name in expected:
+            assert name in ADAPTER_REGISTRY, f"Missing adapter: {name}"
+
+    def test_registry_has_core_adapters(self):
+        """Test adapters that don't require manylatents."""
+        from manyagents.main import ADAPTER_REGISTRY
+
+        expected = ["mock", "claude", "openai", "local_llm"]
         for name in expected:
             assert name in ADAPTER_REGISTRY, f"Missing adapter: {name}"
