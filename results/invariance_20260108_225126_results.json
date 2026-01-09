@@ -1,0 +1,80 @@
+{
+  "experiment_id": "invariance_20260108_225126",
+  "timestamp": "2026-01-08T22:53:02.771277",
+  "prompts": {
+    "trajectory": {
+      "text": "I have single-cell RNA-seq data from mouse embryonic stem cells differentiating into cardiomyocytes over 14 days. I collected cells at days 0, 3, 7, 10, and 14. I need to identify cell populations and understand the structure of my data. What analysis pipeline should I follow?",
+      "expected_geometry": "branching_trajectory",
+      "ground_truth_methods": [
+        "pseudotime",
+        "trajectory_inference",
+        "rna_velocity",
+        "diffusion_map",
+        "monocle",
+        "slingshot",
+        "paga",
+        "scvelo",
+        "velocyto",
+        "cellrank",
+        "dpt"
+      ]
+    }
+  },
+  "results": {
+    "local_llm": {
+      "trajectory": {
+        "success": true,
+        "raw_response": "Based on your single-cell RNA-seq data, I recommend the following analysis pipeline to identify cell populations and understand the structure of your data:\n\n**Step 1: Data Preprocessing**\n\n1. **Quality control**: Use tools like FastQC, MultiQC, or Scanpy's `quality_control` function to assess the quality of your sequencing data.\n2. **Alignment**: Use STAR or HISAT2 for aligning reads to the mouse genome (mm10 or mm39).\n3. **Count matrix generation**: Use tools like featureCounts (from the Subread package) or the `count` function in Scanpy to generate a count matrix.\n4. **Normalization**: Apply normalization using methods like DESeq2's `vst` (variance-stabilizing transformation) or Scanpy's `log1p` function.\n\n**Step 2: Dimensionality Reduction and Clustering**\n\n1. **Dimensionality reduction**: Use PCA (Principal Component Analysis) or t-SNE (t-distributed Stochastic Neighbor Embedding) to reduce the dimensionality of your data. For this dataset, I recommend PCA.\n2. **Clustering**: Use a clustering algorithm like k-means, hierarchical clustering, or Louvain clustering (from the Scanpy library) to identify cell populations.\n\n**Step 3: Cell Population Identification and Visualization**\n\n1. **Cell population identification**: Use the clustering results to identify distinct cell populations.\n2. **Visualization**: Use tools like Scanpy's `plotting` functions or Seaborn to visualize the clustering results, including UMAP (Uniform Manifold Approximation and Projection) or PCA plots.\n\n**Step 4: Differential Gene Expression Analysis**\n\n1. **Differential gene expression analysis**: Use tools like DESeq2 or edgeR to identify genes that are differentially expressed between cell populations.\n2. **Gene set enrichment analysis**: Use tools like GSEA (Gene Set Enrichment Analysis) or GSEApy to identify enriched gene sets (e.g., GO terms, KEGG pathways) in each cell population.\n\n**Step 5: Time Course Analysis**\n\n1. **Time course analysis**: Use tools like Scanpy's `dynatrace` function or the `pseudotime` function from the Monocle library to analyze the dynamics of cell populations over time.\n2. **Cell trajectory inference**: Use tools like Monocle or the `pseudotime` function from the Scanpy library to infer the cell trajectory.\n\n**Additional Recommendations**\n\n* Use the `scanpy` library for most of the analysis steps, as it provides a comprehensive set of tools for single-cell RNA-seq analysis.\n* Use the `mouse` genome (mm10 or mm39) for alignment and gene annotation.\n* Consider using a cell cycle score or cell cycle phase annotation to improve the accuracy of cell population identification.\n* Use a suitable batch correction method (e.g., ComBat-seq) to account for batch effects, if applicable.\n\nHere's a sample code snippet to get you started:\n```python\nimport scanpy as sc\nimport pandas as pd\nimport numpy as np\n\n# Load data\nadata = sc.read_h5ad('your_data.h5ad')\n\n# Preprocess data\nsc.pp.filter_cells(adata, min_counts=200)\nsc.pp.filter_genes(adata, min_cells=3)\nsc.pp.normalize_total(adata)\nsc.pp.log1p(adata)\n\n# Dimensionality reduction\nsc.tl.pca(adata, n_comps=50)\n\n# Clustering\nsc.tl.louvain(adata, resolution=0.5)\n\n# Cell population identification and visualization\nsc.tl.leiden(adata, resolution=0.5)\nsc.pl.umap(adata, color='leiden')\n\n# Differential gene expression analysis\nsc.tl.differential_expression(adata, groupby='leiden')\nsc.pl.dotplot(adata, groupby='leiden', x='gene', y='log2FoldChange')\n```\nNote that this is just a starting point, and you may need to adjust the parameters and methods based on your specific data and research questions.",
+        "extracted_methods": [
+          "clustering",
+          "combat",
+          "deseq2",
+          "edger",
+          "hierarchical_clustering",
+          "k-means",
+          "leiden",
+          "louvain",
+          "monocle",
+          "pca",
+          "t-sne",
+          "trajectory_inference",
+          "umap"
+        ],
+        "mentions_clustering": true,
+        "mentions_trajectory": true,
+        "mentions_data_inspection": true,
+        "metadata": {
+          "model": "llama-3.1-8b",
+          "model_path": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct",
+          "response_time": 86.74857425689697,
+          "max_new_tokens": 2000,
+          "temperature": 0.1
+        },
+        "matches_ground_truth": true,
+        "ground_truth_details": {
+          "ground_truth_matches": [
+            "monocle",
+            "trajectory_inference"
+          ],
+          "failure_matches": [
+            "clustering",
+            "leiden",
+            "louvain"
+          ],
+          "total_extracted": 13,
+          "match_ratio": 0.18181818181818182
+        }
+      }
+    }
+  },
+  "metrics": {
+    "local_llm": {
+      "jaccard_similarity_across_prompts": 1.0,
+      "jaccard_min": 1.0,
+      "jaccard_max": 1.0,
+      "ground_truth_match_rate": 1.0,
+      "clustering_for_all_rate": 1.0,
+      "scenarios_evaluated": 1
+    }
+  }
+}
