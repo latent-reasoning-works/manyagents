@@ -1,0 +1,60 @@
+# @package _global_
+
+# Remote execution on Mila cluster via 'shop' library
+# Usage: python -m manyagents.main cluster=mila_remote resources=api ...
+
+defaults:
+  - override /hydra/launcher: shop_remote_slurm
+
+hydra:
+  mode: MULTIRUN
+  run:
+    dir: outputs/${name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: outputs/${name}/multiruns/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+
+  launcher:
+    # Shop's RemoteSlurmLauncher
+    _target_: shop.hydra.launchers.RemoteSlurmLauncher
+
+    # SSH connection
+    ssh_hostname: login.server.mila.quebec
+    ssh_username: ${oc.env:USER}
+    ssh_key_file: ${oc.env:HOME}/.ssh/id_rsa
+    ssh_port: 22
+
+    # Base Resource parameters (override with resources=... config group)
+    cpus_per_task: 4
+    gpus_per_task: 0
+    mem: "16G"
+    time_limit: "02:00:00"
+    partition: "main"
+    tasks_per_node: 1
+    nodes: 1
+
+    # Auto-detect account if not specified
+    account: null
+
+    # Remote environment setup
+    # $SCRATCH is usually /network/scratch/u/user
+    remote_dir: $SCRATCH/${oc.env:PROJECT_NAME,manyAgents}
+    
+    # Conda environment to activate on remote
+    conda_env: ${oc.env:CONDA_DEFAULT_ENV,manyagents}
+
+    # Setup commands (run before each job)
+    setup_commands:
+      - echo "Starting remote job on $(hostname)"
+      - echo "SLURM_JOB_ID $SLURM_JOB_ID"
+      - pwd
+      
+    # Job configuration
+    array_parallelism: 256
+    log_folder: ${hydra.sweep.dir}/.submitit/%j
+
+# WandB configuration for remote sweeps
+wandb:
+  group: ${oc.env:SLURM_ARRAY_JOB_ID,remote_sweep_${now:%Y%m%d_%H%M%S}}
+  id: ${oc.env:SLURM_JOB_ID,local}_${oc.env:SLURM_ARRAY_TASK_ID,0}
+  name: task_${oc.env:SLURM_ARRAY_TASK_ID,0}

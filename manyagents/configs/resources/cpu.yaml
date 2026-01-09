@@ -1,0 +1,14 @@
+# @package _global_
+
+hydra:
+  launcher:
+    # CPU resources
+    cpus_per_task: 4
+    gpus_per_task: 0
+    mem: 16G
+    
+    # Higher parallelism for CPU tasks
+    array_parallelism: 64
+
+    # Time limit
+    time_limit: "04:00:00"

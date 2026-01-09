@@ -110,14 +110,15 @@ class ExperimentLogger:
 
         wandb = _get_wandb()
 
+        # Use prefixed keys to avoid conflict with Hydra config
         wandb.config.update({
-            "scenarios": list(scenarios.keys()),
-            "scenario_count": len(scenarios),
-            "target_systems": target_systems,
-            "system_count": len(target_systems),
-            "system_prompt": system_prompt[:500] if system_prompt else None,
-            "model_overrides": model_overrides,
-        })
+            "exp/scenario_names": list(scenarios.keys()),
+            "exp/scenario_count": len(scenarios),
+            "exp/target_systems": target_systems,
+            "exp/system_count": len(target_systems),
+            "exp/system_prompt_preview": system_prompt[:500] if system_prompt else None,
+            "exp/model_overrides": model_overrides,
+        }, allow_val_change=True)
 
         # Log scenario details as a table
         scenario_table = wandb.Table(columns=[

@@ -1,0 +1,11 @@
+# @package _global_
+# Mock agent for testing experiment infrastructure
+# No API calls or GPU required
+
+agent:
+  name: mock
+  adapter: mock
+  config:
+    delay: 0.1
+    fail_rate: 0.0
+    mock_methods: [leiden, umap, pca]

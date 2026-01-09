@@ -3,6 +3,8 @@
 
 defaults:
   - _self_
+  - cluster: local
+  - optional resources: null
   - optional experiment: null
 
 name: manyagents_default

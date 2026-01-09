@@ -1,0 +1,27 @@
+# @package _global_
+
+# Resource configuration for API-heavy agents (Claude, OpenAI)
+# Low compute, but high network and concurrency needs.
+
+hydra:
+  launcher:
+    # Minimal compute resources
+    cpus_per_task: 2
+    gpus_per_task: 0
+    mem: 8G
+    
+    # High parallelism, but throttled to avoid 429 Rate Limits
+    # Adjust this based on your API tier limits!
+    array_parallelism: 50
+
+    # Time limit (APIs can hang, so keeping it generous)
+    time_limit: "06:00:00"
+
+    # Propagate API Keys from local environment to remote job
+    # WARNING: This puts keys in the job script/logs on the remote cluster.
+    setup_commands:
+      - export OPENAI_API_KEY='${oc.env:OPENAI_API_KEY,""}'
+      - export ANTHROPIC_API_KEY='${oc.env:ANTHROPIC_API_KEY,""}'
+      # Proxy settings if needed for compute nodes
+      # - export HTTP_PROXY=http://proxy.example.com:8080
+      # - export HTTPS_PROXY=http://proxy.example.com:8080

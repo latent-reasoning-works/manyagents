@@ -1,0 +1,54 @@
+# @package _global_
+# Test experiment for verifying wandb integration and cluster submission
+# Uses mock adapter - no API calls or GPU required
+#
+# Usage:
+#   # Local test
+#   manyagents experiment=test_wandb
+#
+#   # With wandb
+#   manyagents experiment=test_wandb wandb.enabled=true
+#
+#   # Cluster dry-run
+#   manyagents experiment=test_wandb cluster=mila_remote --info
+#
+#   # Cluster submission
+#   manyagents experiment=test_wandb cluster=mila_remote resources=cpu wandb.enabled=true
+
+name: test_wandb_integration
+
+wandb:
+  tags:
+    - test
+    - wandb-integration
+
+defaults:
+  - /agent@agents.mock: mock
+  - _self_
+
+system_prompt: >
+  You are a test agent for verifying experiment infrastructure.
+  Return a simple analysis recommendation.
+
+active_agents:
+  - mock
+
+# Minimal scenarios for quick testing
+scenarios:
+  test_discrete:
+    text: |
+      I have a dataset with 1000 samples that forms distinct clusters.
+      What methods would you recommend?
+    expected_geometry: discrete_clusters
+    ground_truth_methods: [leiden, louvain, kmeans]
+    failure_indicators: [trajectory, pseudotime]
+
+  test_trajectory:
+    text: |
+      I have time-series data showing a branching structure.
+      What methods would you recommend?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [slingshot, monocle, paga]
+    failure_indicators: [clustering, kmeans]
+
+output_dir: outputs/test_wandb/${name}_${now:%Y-%m-%d_%H-%M-%S}

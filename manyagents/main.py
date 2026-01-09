@@ -24,6 +24,13 @@ from typing import Dict, Any, Optional
 import hydra
 from omegaconf import DictConfig
 
+# Register shop's custom Hydra launchers (enables cluster=mila_remote)
+try:
+    from shop.hydra.config_store import register_shop_launchers
+    register_shop_launchers()
+except ImportError:
+    pass  # shop not installed, cluster launchers won't be available
+
 from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
 from manyagents.adapters.openai_adapter import OpenAIAdapter
 from manyagents.adapters.cellforge_adapter import CellForgeAdapter
@@ -31,6 +38,7 @@ from manyagents.adapters.biomni_adapter import BiomniAdapter
 from manyagents.adapters.kosmos_adapter import KosmosAdapter
 from manyagents.adapters.claude_adapter import ClaudeAdapter
 from manyagents.adapters.local_llm_adapter import LocalLLMAdapter
+from manyagents.adapters.mock_adapter import MockAdapter
 # from manyagents.adapters.biodiscovery_adapter import BioDiscoveryAgentAdapter  # Coming soon
 
 log = logging.getLogger(__name__)
@@ -68,6 +76,7 @@ ADAPTER_REGISTRY = {
     "kosmos": KosmosAdapter,
     "claude": ClaudeAdapter,
     "local_llm": LocalLLMAdapter,
+    "mock": MockAdapter,
     # "biodiscovery": BioDiscoveryAgentAdapter,  # Placeholder for Phase 2
 }
 
