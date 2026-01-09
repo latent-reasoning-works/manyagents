@@ -1,0 +1,27 @@
+# @package _global_
+# Discrete cell types scenario - expects clustering methods
+
+prompt:
+  id: discrete
+  text: >
+    I have single-cell RNA-seq data from peripheral blood mononuclear cells (PBMCs)
+    from healthy donors. The dataset contains approximately 10,000 cells. Previous
+    FACS analysis suggests there are distinct immune cell populations present including
+    T cells, B cells, monocytes, and NK cells. I need to identify and characterize
+    these cell types. What analysis pipeline should I follow?
+  expected_geometry: discrete_clusters
+  ground_truth_methods:
+    - leiden
+    - louvain
+    - clustering
+    - kmeans
+    - phenograph
+    - differential_expression
+    - findmarkers
+    - rank_genes_groups
+  failure_indicators:
+    - pseudotime
+    - trajectory
+    - velocity
+    - monocle
+    - slingshot

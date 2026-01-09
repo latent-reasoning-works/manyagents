@@ -30,6 +30,7 @@ docs = ["mkdocs>=1.6.1", "mkdocs-material>=9.0.0"]
 
 [project.scripts]
 manyagents = "manyagents.main:main"
+manyagents-experiment = "manyagents.experiment.hydra_runner:main"
 manyagents-generate-registry = "manyagents.adapters._generate_metric_registry:main"
 
 [tool.hatch.metadata]

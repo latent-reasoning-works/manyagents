@@ -1,0 +1,12 @@
+# @package _global_
+# Claude (Anthropic) agent configuration
+
+agent:
+  name: claude
+  adapter: claude
+  config:
+    model: claude-sonnet-4-20250514
+    temperature: 0.0
+    max_tokens: 2000
+  requires_env:
+    - ANTHROPIC_API_KEY

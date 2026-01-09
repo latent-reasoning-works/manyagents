@@ -1,0 +1,35 @@
+# @package _global_
+# Golden trajectory test - single scenario to validate infrastructure
+#
+# Usage:
+#   manyagents-experiment experiment=invariance_golden
+#   manyagents-experiment experiment=invariance_golden agents=[claude,openai]
+#   manyagents-experiment experiment=invariance_golden agents=[local_llm] agent.local_llm.config.model=llama-3.3-70b
+
+name: invariance_golden_test
+
+defaults:
+  - /prompts: trajectory
+  - /agent@agents.local_llm: local_llm
+  - _self_
+
+# System prompt for all agents
+system_prompt: >
+  You are a computational biology expert advising on single-cell RNA-seq analysis.
+  Provide specific method recommendations based on the data structure described.
+  Be concise and focus on the most appropriate analytical methods.
+
+# Which agents to run (can override via CLI)
+active_agents:
+  - local_llm
+
+# Scenarios to test (references prompts config)
+scenarios:
+  trajectory: ${prompt}
+
+# Evaluation settings
+evaluation:
+  compute_jaccard: true
+  compute_ground_truth_match: true
+
+output_dir: outputs/invariance/${name}_${now:%Y-%m-%d_%H-%M-%S}

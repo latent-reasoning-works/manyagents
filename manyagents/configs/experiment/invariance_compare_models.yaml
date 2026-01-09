@@ -1,0 +1,44 @@
+# @package _global_
+# Compare open vs closed models on invariance test
+#
+# Usage:
+#   manyagents-experiment experiment=invariance_compare_models
+#   manyagents-experiment --multirun experiment=invariance_compare_models agents.local_llm.config.model=llama-3.1-8b,llama-3.1-70b,llama-3.3-70b
+
+name: invariance_model_comparison
+
+defaults:
+  - /agent@agents.claude: claude
+  - /agent@agents.openai: openai
+  - /agent@agents.local_llm: local_llm
+  - _self_
+
+system_prompt: >
+  You are a computational biology expert advising on single-cell RNA-seq analysis.
+  Provide specific method recommendations based on the data structure described.
+  Be concise and focus on the most appropriate analytical methods.
+
+# Compare all three
+active_agents:
+  - claude
+  - openai
+  - local_llm
+
+# Use trajectory scenario for quick comparison
+scenarios:
+  trajectory:
+    id: trajectory
+    text: >
+      I have single-cell RNA-seq data from mouse embryonic stem cells differentiating
+      into cardiomyocytes over 14 days. I collected cells at days 0, 3, 7, 10, and 14.
+      I need to identify cell populations and understand the structure of my data.
+      What analysis pipeline should I follow?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [pseudotime, trajectory_inference, rna_velocity, diffusion_map, monocle, slingshot, paga]
+    failure_indicators: [leiden, louvain, clustering]
+
+evaluation:
+  compute_jaccard: true
+  compute_ground_truth_match: true
+
+output_dir: outputs/invariance/${name}_${now:%Y-%m-%d_%H-%M-%S}

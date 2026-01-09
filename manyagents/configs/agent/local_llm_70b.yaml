@@ -1,0 +1,10 @@
+# @package _global_
+# Local LLM agent configuration - 70B variant for higher quality
+
+agent:
+  name: local_llm_70b
+  adapter: local_llm
+  config:
+    model: llama-3.3-70b
+    temperature: 0.1
+    max_new_tokens: 2000

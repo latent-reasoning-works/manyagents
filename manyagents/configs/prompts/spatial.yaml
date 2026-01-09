@@ -1,0 +1,25 @@
+# @package _global_
+# Spatial/continuous gradient scenario - expects spatial/continuous methods
+
+prompt:
+  id: spatial
+  text: >
+    I have spatial transcriptomics data (10x Visium) from a tissue section showing
+    a smooth gradient of gene expression across the tissue. There are no clear
+    boundaries between regions - rather, expression changes continuously across space.
+    I need to understand the spatial organization and identify the continuous gradients.
+    What analysis pipeline should I follow?
+  expected_geometry: continuous_gradient
+  ground_truth_methods:
+    - phate
+    - diffusion_map
+    - squidpy
+    - stlearn
+    - giotto
+    - spatial
+    - density
+  failure_indicators:
+    - leiden
+    - louvain
+    - clustering
+    - discrete

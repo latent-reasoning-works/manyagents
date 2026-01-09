@@ -1,0 +1,12 @@
+# @package _global_
+# OpenAI GPT-4 agent configuration
+
+agent:
+  name: openai
+  adapter: openai
+  config:
+    model: gpt-4o
+    temperature: 0.0
+    max_tokens: 2000
+  requires_env:
+    - OPENAI_API_KEY

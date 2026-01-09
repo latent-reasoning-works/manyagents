@@ -1,0 +1,87 @@
+# @package _global_
+# Full 4-scenario pipeline invariance experiment
+#
+# Usage:
+#   manyagents-experiment experiment=invariance_full
+#   manyagents-experiment experiment=invariance_full active_agents=[claude,openai,local_llm]
+#   manyagents-experiment --multirun experiment=invariance_full agents.local_llm.config.model=llama-3.1-8b,llama-3.3-70b
+
+name: invariance_full_experiment
+
+defaults:
+  - /agent@agents.claude: claude
+  - /agent@agents.openai: openai
+  - /agent@agents.local_llm: local_llm
+  - /agent@agents.biomni: biomni
+  - _self_
+
+# System prompt for all agents
+system_prompt: >
+  You are a computational biology expert advising on single-cell RNA-seq analysis.
+  Provide specific method recommendations based on the data structure described.
+  Be concise and focus on the most appropriate analytical methods.
+
+# Which agents to run
+active_agents:
+  - claude
+  - openai
+  - local_llm
+
+# All 4 scenarios with different geometries
+scenarios:
+  A_discrete:
+    id: discrete
+    text: >
+      I have single-cell RNA-seq data from peripheral blood mononuclear cells (PBMCs)
+      from healthy donors. The dataset contains approximately 10,000 cells. Previous
+      FACS analysis suggests there are distinct immune cell populations present including
+      T cells, B cells, monocytes, and NK cells. I need to identify and characterize
+      these cell types. What analysis pipeline should I follow?
+    expected_geometry: discrete_clusters
+    ground_truth_methods: [leiden, louvain, clustering, kmeans, phenograph, differential_expression, findmarkers]
+    failure_indicators: [pseudotime, trajectory, velocity, monocle, slingshot]
+
+  B_trajectory:
+    id: trajectory
+    text: >
+      I have single-cell RNA-seq data from mouse embryonic stem cells differentiating
+      into cardiomyocytes over 14 days. I collected cells at days 0, 3, 7, 10, and 14.
+      The differentiation process is known to involve intermediate progenitor states.
+      I need to understand the structure of my data and the differentiation dynamics.
+      What analysis pipeline should I follow?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [pseudotime, trajectory_inference, rna_velocity, diffusion_map, monocle, slingshot, paga, scvelo, dpt]
+    failure_indicators: [leiden, louvain, clustering]
+
+  C_periodic:
+    id: periodic
+    text: >
+      I have single-cell RNA-seq data from a synchronized cell culture experiment.
+      Cells were synchronized at G1/S boundary and released. I collected cells every
+      2 hours for 24 hours. I expect to see cyclic patterns as cells progress through
+      the cell cycle. I need to understand the structure of my data and identify cell
+      cycle states. What analysis pipeline should I follow?
+    expected_geometry: periodic_cycle
+    ground_truth_methods: [cyclum, tricycle, cell_cycle_scoring, ccremover, scran_cyclone, recat]
+    failure_indicators: [pseudotime, trajectory, monocle, slingshot]
+
+  D_spatial:
+    id: spatial
+    text: >
+      I have spatial transcriptomics data (10x Visium) from a tissue section showing
+      a smooth gradient of gene expression across the tissue. There are no clear
+      boundaries between regions - rather, expression changes continuously across space.
+      I need to understand the spatial organization and identify the continuous gradients.
+      What analysis pipeline should I follow?
+    expected_geometry: continuous_gradient
+    ground_truth_methods: [phate, diffusion_map, squidpy, stlearn, giotto, spatial]
+    failure_indicators: [leiden, louvain, clustering]
+
+# Evaluation settings
+evaluation:
+  compute_jaccard: true
+  compute_ground_truth_match: true
+  invariance_threshold: 0.7  # Jaccard > 0.7 indicates pipeline regurgitation
+  geometry_aware_threshold: 0.5  # GT match > 50% indicates geometry awareness
+
+output_dir: outputs/invariance/${name}_${now:%Y-%m-%d_%H-%M-%S}

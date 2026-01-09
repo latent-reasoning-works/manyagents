@@ -1,0 +1,12 @@
+# @package _global_
+# Biomni (Stanford biomedical AI) agent configuration
+
+agent:
+  name: biomni
+  adapter: biomni
+  config:
+    llm: claude-sonnet-4-20250514
+    timeout: 3600
+    disable_datalake: true  # Skip 11GB download for faster startup
+  requires_env:
+    - ANTHROPIC_API_KEY

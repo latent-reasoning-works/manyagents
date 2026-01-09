@@ -1,0 +1,24 @@
+# @package _global_
+# Periodic/cell cycle scenario - expects cell cycle methods
+
+prompt:
+  id: periodic
+  text: >
+    I have single-cell RNA-seq data from a synchronized cell culture experiment.
+    Cells were synchronized at G1/S boundary and released. I collected cells every
+    2 hours for 24 hours. I expect to see cyclic patterns as cells progress through
+    the cell cycle. I need to understand the structure of my data and identify cell
+    cycle states. What analysis pipeline should I follow?
+  expected_geometry: periodic_cycle
+  ground_truth_methods:
+    - cyclum
+    - tricycle
+    - cell_cycle_scoring
+    - ccremover
+    - scran_cyclone
+    - recat
+  failure_indicators:
+    - pseudotime
+    - trajectory
+    - monocle
+    - slingshot
