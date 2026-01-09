@@ -1,10 +1,12 @@
 """
-Hydra-based experiment runner for pipeline invariance testing.
+Experiment runner for pipeline invariance testing.
 
-Usage:
-    manyagents-experiment experiment=invariance_golden
-    manyagents-experiment experiment=invariance_full active_agents=[claude,openai]
-    manyagents-experiment experiment=invariance_golden agents.local_llm.config.model=llama-3.3-70b
+Called by manyagents.main when scenarios config is detected.
+
+Usage (via main CLI):
+    manyagents experiment=invariance_golden
+    manyagents experiment=invariance_full active_agents=[claude,openai]
+    manyagents experiment=invariance_golden wandb.enabled=true
 """
 
 import asyncio
@@ -13,7 +15,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
-import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from .metrics import compute_system_metrics
@@ -26,8 +27,29 @@ from ._shared import (
     print_metrics_summary,
     generate_experiment_id,
 )
+from .logger import ExperimentLogger, NullLogger
 
 log = logging.getLogger(__name__)
+
+
+def _create_logger(cfg: DictConfig, experiment_id: str) -> ExperimentLogger:
+    """Create an experiment logger based on config."""
+    wandb_cfg = getattr(cfg, 'wandb', None)
+
+    if wandb_cfg is None or not getattr(wandb_cfg, 'enabled', False):
+        return NullLogger()
+
+    tags = getattr(wandb_cfg, 'tags', [])
+    tags = list(tags) if tags else None
+
+    return ExperimentLogger(
+        project=getattr(wandb_cfg, 'project', 'manyagents'),
+        experiment_name=experiment_id,
+        config=OmegaConf.to_container(cfg, resolve=True),
+        entity=getattr(wandb_cfg, 'entity', None),
+        tags=tags,
+        enabled=True,
+    )
 
 
 async def run_agent(
@@ -71,6 +93,9 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
     """Run the full experiment based on Hydra config."""
     experiment_id = generate_experiment_id(cfg.name)
 
+    # Create logger
+    logger = _create_logger(cfg, experiment_id)
+
     log.info(f"Starting experiment: {experiment_id}")
     log.info(f"Active agents: {cfg.active_agents}")
     log.info(f"Scenarios: {list(cfg.scenarios.keys())}")
@@ -78,9 +103,20 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
     all_results = {agent: {} for agent in cfg.active_agents}
     scenarios_dict = {}
 
+    # Build scenarios dict first for logging
     for scenario_id, scenario in cfg.scenarios.items():
-        scenario_dict = OmegaConf.to_container(scenario, resolve=True)
-        scenarios_dict[scenario_id] = scenario_dict
+        scenarios_dict[scenario_id] = OmegaConf.to_container(scenario, resolve=True)
+
+    # Log config
+    logger.log_config(
+        scenarios_dict,
+        list(cfg.active_agents),
+        cfg.system_prompt,
+        None  # model_overrides from agent configs
+    )
+
+    for scenario_id in cfg.scenarios.keys():
+        scenario_dict = scenarios_dict[scenario_id]
         prompt = scenario_dict.get('text', scenario_dict.get('prompt', ''))
 
         log.info(f"Running scenario: {scenario_id}")
@@ -104,12 +140,20 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
             all_results[agent_name][scenario_id] = result
             log.info(f"  {agent_name}: {'SUCCESS' if result.get('success') else 'FAILED'}")
 
+            # Log per-scenario result
+            logger.log_scenario_result(agent_name, scenario_id, result)
+
     # Compute metrics
     metrics = {
         agent_name: compute_system_metrics(all_results[agent_name], scenarios_dict)
         for agent_name in cfg.active_agents
         if agent_name in all_results
     }
+
+    # Log system metrics and summary table
+    for agent_name, agent_metrics in metrics.items():
+        logger.log_system_metrics(agent_name, agent_metrics)
+    logger.log_summary_table(metrics)
 
     experiment_results = {
         'experiment_id': experiment_id,
@@ -120,30 +164,26 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
         'metrics': metrics
     }
 
+    output_dir = Path(cfg.output_dir)
     save_experiment_results(
         experiment_results,
-        Path(cfg.output_dir),
+        output_dir,
         experiment_id
     )
+
+    # Log visualizations and artifacts
+    logger.create_visualizations(experiment_results)
+    logger.save_artifacts(experiment_results, output_dir, experiment_id)
+
+    # Finish logging
+    wandb_url = logger.finish()
+    if wandb_url:
+        experiment_results['wandb_url'] = wandb_url
+        log.info(f"wandb run: {wandb_url}")
 
     print_metrics_summary(metrics)
 
     return experiment_results
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="main")
-def main(cfg: DictConfig) -> None:
-    """Hydra entry point for experiments."""
-    if not hasattr(cfg, 'scenarios') or not cfg.scenarios:
-        log.error("No scenarios defined. Use experiment=invariance_golden or similar.")
-        return
-
-    if not hasattr(cfg, 'active_agents') or not cfg.active_agents:
-        log.error("No active_agents defined.")
-        return
-
-    asyncio.run(run_experiment(cfg))
-
-
-if __name__ == "__main__":
-    main()
+# Note: Entry point is now manyagents.main which routes here when scenarios detected

@@ -2,11 +2,17 @@
 # Golden trajectory test - single scenario to validate infrastructure
 #
 # Usage:
-#   manyagents-experiment experiment=invariance_golden
-#   manyagents-experiment experiment=invariance_golden agents=[claude,openai]
-#   manyagents-experiment experiment=invariance_golden agents=[local_llm] agent.local_llm.config.model=llama-3.3-70b
+#   manyagents experiment=invariance_golden
+#   manyagents experiment=invariance_golden wandb.enabled=true
+#   manyagents experiment=invariance_golden agents.local_llm.config.model=llama-3.3-70b
 
 name: invariance_golden_test
+
+# Enable wandb with invariance tag for this experiment type
+wandb:
+  tags:
+    - invariance
+    - golden-test
 
 defaults:
   - /prompts: trajectory

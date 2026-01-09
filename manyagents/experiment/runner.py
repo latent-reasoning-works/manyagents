@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .extractor import extract_methods, check_ground_truth_match
 from .metrics import compute_system_metrics, generate_summary_table
@@ -20,6 +20,9 @@ from ._shared import (
     add_ground_truth_matching,
     generate_experiment_id,
 )
+
+if TYPE_CHECKING:
+    from .logger import ExperimentLogger
 
 log = logging.getLogger(__name__)
 
@@ -109,7 +112,8 @@ async def run_invariance_experiment(
     target_systems: List[str],
     system_prompt: Optional[str] = None,
     output_dir: Optional[Path] = None,
-    model_overrides: Optional[Dict[str, str]] = None
+    model_overrides: Optional[Dict[str, str]] = None,
+    logger: Optional["ExperimentLogger"] = None,
 ) -> Dict[str, Any]:
     """
     Run the full pipeline invariance experiment.
@@ -120,6 +124,7 @@ async def run_invariance_experiment(
         system_prompt: Optional system prompt for all queries
         output_dir: Optional directory to save results
         model_overrides: Optional dict mapping system name to model name
+        logger: Optional ExperimentLogger for wandb tracking
 
     Returns:
         Full experiment results with metrics
@@ -131,6 +136,10 @@ async def run_invariance_experiment(
     log.info(f"Target systems: {target_systems}")
     if model_overrides:
         log.info(f"Model overrides: {model_overrides}")
+
+    # Log config if logger provided
+    if logger:
+        logger.log_config(scenarios, target_systems, system_prompt, model_overrides)
 
     # Initialize results structure
     all_results = {system: {} for system in target_systems}
@@ -150,11 +159,21 @@ async def run_invariance_experiment(
             add_ground_truth_matching(result, scenario)
             all_results[system][scenario_id] = result
 
+            # Log per-scenario result
+            if logger:
+                logger.log_scenario_result(system, scenario_id, result)
+
     # Compute metrics
     metrics = {
         system: compute_system_metrics(all_results[system], scenarios)
         for system in target_systems
     }
+
+    # Log system metrics
+    if logger:
+        for system, system_metrics in metrics.items():
+            logger.log_system_metrics(system, system_metrics)
+        logger.log_summary_table(metrics)
 
     # Assemble results
     experiment_results = {
@@ -195,6 +214,17 @@ async def run_invariance_experiment(
             f.write("- **Ground Truth Match:** Higher = recommendations match expected methods for each geometry type (GOOD)\n")
             f.write("- **Clustering-for-All:** Higher = always recommends clustering regardless of data structure (BAD)\n")
         log.info(f"Summary saved to {summary_path}")
+
+        # Log visualizations and artifacts
+        if logger:
+            logger.create_visualizations(experiment_results)
+            logger.save_artifacts(experiment_results, output_dir, experiment_id)
+
+    # Finish logging
+    if logger:
+        wandb_url = logger.finish()
+        if wandb_url:
+            experiment_results['wandb_url'] = wandb_url
 
     return experiment_results
 

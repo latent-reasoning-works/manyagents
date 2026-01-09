@@ -1,7 +1,19 @@
 """
-Main orchestration engine for ManyAgents.
+Smart CLI router for ManyAgents.
 
-This module provides the core workflow execution logic using the adapter pattern.
+Routes to appropriate execution engine based on config:
+- If 'scenarios' key present → invariance experiment
+- If 'workflow' key present → workflow execution
+
+Usage:
+    # Workflow execution
+    manyagents experiment=single_algorithm
+
+    # Invariance experiment (auto-detected from scenarios key)
+    manyagents experiment=invariance_golden
+
+    # With wandb
+    manyagents experiment=invariance_golden wandb.enabled=true
 """
 import asyncio
 import logging
@@ -249,44 +261,58 @@ async def execute_workflow_chain(
 # ============================================================================
 
 @hydra.main(version_base=None, config_path="configs", config_name="main")
-def main(cfg: DictConfig) -> None:
+def main(cfg: DictConfig) -> Dict[str, Any]:
     """
-    Main Hydra entry point for manyAgents.
+    Smart CLI router that automatically detects and executes the appropriate mode.
+
+    Inspects the configuration:
+    - If 'scenarios' key present and non-empty → routes to run_experiment()
+    - If 'workflow' key present and non-empty → routes to execute_workflow_chain()
 
     Usage:
-        uv run manyagents experiment=single_algorithm
+        manyagents experiment=single_algorithm       # workflow mode
+        manyagents experiment=invariance_golden      # experiment mode
     """
-    log.info("Starting ManyAgents orchestrator")
-    log.info(f"Experiment name: {cfg.name}")
+    log.info("Starting ManyAgents")
+    log.info(f"Config name: {cfg.name}")
 
-    # Check if workflow is defined
-    if not cfg.get("workflow"):
-        log.error("No workflow defined in config")
-        log.info("Usage: uv run manyagents experiment=single_algorithm")
-        return
+    # Smart routing: detect execution mode from config
+    has_scenarios = hasattr(cfg, 'scenarios') and cfg.scenarios and len(cfg.scenarios) > 0
+    has_workflow = hasattr(cfg, 'workflow') and cfg.workflow and cfg.workflow.get('steps')
 
-    # Create output directory
-    output_dir = Path(cfg.get("output_dir", "outputs"))
-    output_dir.mkdir(parents=True, exist_ok=True)
-    log.info(f"Output directory: {output_dir}")
+    if has_scenarios:
+        # Route to invariance experiment engine
+        log.info("Detected scenarios config → running experiment mode")
+        from manyagents.experiment.hydra_runner import run_experiment
+        return asyncio.run(run_experiment(cfg))
 
-    # Execute workflow
-    result = asyncio.run(execute_workflow_chain(cfg, output_dir))
+    elif has_workflow:
+        # Route to workflow engine
+        log.info("Detected workflow config → running workflow mode")
+        output_dir = Path(cfg.get("output_dir", "outputs"))
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Print results
-    if result["success"]:
-        log.info("\n" + "="*60)
-        log.info("WORKFLOW RESULTS")
-        log.info("="*60)
+        result = asyncio.run(execute_workflow_chain(cfg, output_dir))
 
-        for step in result["steps"]:
-            log.info(f"\n{step['name']}:")
-            log.info(f"  Summary: {step['result']['summary']}")
+        if result["success"]:
+            log.info("\n" + "="*60)
+            log.info("WORKFLOW RESULTS")
+            log.info("="*60)
+            for step in result["steps"]:
+                log.info(f"\n{step['name']}:")
+                log.info(f"  Summary: {step['result']['summary']}")
+            log.info("\n" + "="*60)
+        else:
+            log.error("Workflow failed")
+            log.error(f"Error: {result.get('metadata', {}).get('error', 'Unknown')}")
 
-        log.info("\n" + "="*60)
+        return result
+
     else:
-        log.error("Workflow failed")
-        log.error(f"Error: {result.get('metadata', {}).get('error', 'Unknown')}")
+        log.error("No valid config detected.")
+        log.info("Use experiment=invariance_golden for experiments")
+        log.info("Use experiment=single_algorithm for workflows")
+        return {"success": False, "error": "No valid config"}
 
 
 if __name__ == "__main__":
