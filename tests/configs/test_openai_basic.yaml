@@ -1,0 +1,22 @@
+# @package _global_
+# Test: OpenAI Basic Integration
+#
+# This is a test config for validating that manyagents correctly orchestrates
+# the OpenAI adapter for LLM-based reasoning tasks.
+#
+# Usage:
+#   pytest tests/test_openai_adapter.py -v
+
+name: test_openai_basic
+
+workflow:
+  steps:
+    - name: simple_query
+      agent: openai
+      config:
+        prompt: "What is 2+2? Answer with just the number."
+        model: "gpt-4o"
+        temperature: 0.0
+        max_tokens: 100
+
+output_dir: outputs/test_openai_basic

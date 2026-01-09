@@ -1,0 +1,24 @@
+# @package _global_
+# Test: CellForge Basic Integration
+#
+# This is a test config for validating that manyagents correctly orchestrates
+# the CellForge adapter for single-cell computational method design.
+#
+# Usage:
+#   pytest tests/test_cellforge_adapter.py -v
+#
+# Note: CellForge must be installed and CELLFORGE_PATH must be set for
+# integration tests. Unit tests use mocked subprocess calls.
+
+name: test_cellforge_basic
+
+workflow:
+  steps:
+    - name: task_analysis
+      agent: cellforge
+      config:
+        phase: task_analysis
+        data_file: data/example.h5ad
+        timeout: 600  # 10 minutes
+
+output_dir: outputs/test_cellforge_basic
