@@ -44,12 +44,7 @@ site/
 .DS_Store
 Thumbs.db
 
-#AI Agents
-CLAUDE.md
-# AI context files (personal)
-CLAUDE.md
-
-# AI context files (personal)
+# AI context files
 CLAUDE.md
 
 # Auto-generated metric registry
