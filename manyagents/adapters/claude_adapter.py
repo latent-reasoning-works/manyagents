@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from .base import AgentAdapter, AdapterResult
 from manyagents.utils.helpers import truncate_string, parse_json_safe
@@ -50,28 +50,19 @@ class ClaudeAdapter(AgentAdapter):
                 return None
         return self.client
 
-    def _build_messages(self, prompt: str) -> List[Dict[str, str]]:
-        """Build message list for Claude API."""
-        return [{"role": "user", "content": prompt}]
-
     def _build_api_params(self, task_config: Dict[str, Any]) -> Dict[str, Any]:
         """Build API parameters from task configuration."""
         params = {
             "model": task_config.get("model", self.DEFAULT_MODEL),
-            "messages": self._build_messages(task_config["prompt"]),
+            "messages": [{"role": "user", "content": task_config["prompt"]}],
             "temperature": task_config.get("temperature", self.DEFAULT_TEMPERATURE),
             "max_tokens": task_config.get("max_tokens", self.DEFAULT_MAX_TOKENS),
         }
 
-        # Add system prompt if provided
         if system_prompt := task_config.get("system_prompt"):
             params["system"] = system_prompt
 
         return params
-
-    def _calculate_retry_delay(self, attempt: int) -> float:
-        """Calculate exponential backoff delay for retry."""
-        return self.RETRY_BASE_DELAY * (2 ** attempt)
 
     async def run(
         self,
@@ -98,7 +89,6 @@ class ClaudeAdapter(AgentAdapter):
         """
         log.info(f"ClaudeAdapter executing with config: {task_config}")
 
-        # Validate inputs
         if "prompt" not in task_config:
             error_msg = "ClaudeAdapter requires 'prompt' parameter in task_config"
             log.error(error_msg)
@@ -110,7 +100,6 @@ class ClaudeAdapter(AgentAdapter):
             log.error(error_msg)
             return self.error_response(error_msg, error_type="missing_api_key")
 
-        # Build API parameters
         api_params = self._build_api_params(task_config)
         response_format = task_config.get("response_format", "text")
 
@@ -120,25 +109,21 @@ class ClaudeAdapter(AgentAdapter):
             f"format: {response_format}"
         )
 
-        # Execute with retry logic
         start_time = time.time()
+        last_error = None
+
         for attempt in range(self.MAX_RETRIES):
             try:
                 log.info(f"Making API call (attempt {attempt + 1}/{self.MAX_RETRIES})")
                 response = await client.messages.create(**api_params)
                 response_time = time.time() - start_time
 
-                # Extract response data
                 content = response.content[0].text
-                tokens_used = {
-                    "input_tokens": response.usage.input_tokens,
-                    "output_tokens": response.usage.output_tokens,
-                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
-                }
+                usage = response.usage
+                total_tokens = usage.input_tokens + usage.output_tokens
 
-                log.info(f"API call completed in {response_time:.2f}s, tokens: {tokens_used['total_tokens']}")
+                log.info(f"API call completed in {response_time:.2f}s, tokens: {total_tokens}")
 
-                # Save and parse outputs
                 output_files = {"raw_response": self.save_text_output(content, "response.txt")}
 
                 if response_format == "json":
@@ -151,7 +136,11 @@ class ClaudeAdapter(AgentAdapter):
                     output_files=output_files,
                     metadata={
                         "model": api_params["model"],
-                        "tokens_used": tokens_used,
+                        "tokens_used": {
+                            "input_tokens": usage.input_tokens,
+                            "output_tokens": usage.output_tokens,
+                            "total_tokens": total_tokens,
+                        },
                         "response_time": response_time,
                         "stop_reason": response.stop_reason,
                         "response_format": response_format,
@@ -160,9 +149,9 @@ class ClaudeAdapter(AgentAdapter):
 
             except Exception as e:
                 error_name = type(e).__name__
+                last_error = e
                 log.warning(f"{error_name}: {e} (attempt {attempt + 1}/{self.MAX_RETRIES})")
 
-                # Check for specific error types
                 if "AuthenticationError" in error_name:
                     log.error(f"Authentication failed: {e}")
                     return self.error_response(
@@ -172,13 +161,10 @@ class ClaudeAdapter(AgentAdapter):
                     )
 
                 if attempt < self.MAX_RETRIES - 1:
-                    wait_time = self._calculate_retry_delay(attempt)
+                    wait_time = self.RETRY_BASE_DELAY * (2 ** attempt)
                     log.info(f"Retrying in {wait_time:.1f}s...")
                     await asyncio.sleep(wait_time)
-                else:
-                    error_msg = f"Claude API error after {self.MAX_RETRIES} attempts: {e}"
-                    log.error(error_msg)
-                    return self.error_response(error_msg, "api_error", str(e))
 
-        # Fallback (should not reach here due to exception handling above)
-        return self.error_response("Failed after all retry attempts", "max_retries_exceeded")
+        error_msg = f"Claude API error after {self.MAX_RETRIES} attempts: {last_error}"
+        log.error(error_msg)
+        return self.error_response(error_msg, "api_error", str(last_error))

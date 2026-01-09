@@ -2,10 +2,9 @@
 
 import asyncio
 import logging
-import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from .base import AgentAdapter, AdapterResult
 from manyagents.utils.helpers import truncate_string
@@ -54,7 +53,7 @@ class LocalLLMAdapter(AgentAdapter):
         """Resolve model name to full path."""
         if model_name in DEFAULT_MODEL_PATHS:
             return DEFAULT_MODEL_PATHS[model_name]
-        if os.path.exists(model_name):
+        if Path(model_name).exists():
             return model_name
         raise ValueError(
             f"Unknown model '{model_name}'. Available: {list(DEFAULT_MODEL_PATHS.keys())} "
@@ -64,7 +63,7 @@ class LocalLLMAdapter(AgentAdapter):
     def _load_model(self, model_path: str):
         """Lazily load model and tokenizer."""
         if self._model is not None and self._loaded_model_path == model_path:
-            return  # Already loaded
+            return
 
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -85,49 +84,34 @@ class LocalLLMAdapter(AgentAdapter):
             trust_remote_code=True,
         )
 
-        load_time = time.time() - load_start
-        log.info(f"Model loaded in {load_time:.1f}s")
+        log.info(f"Model loaded in {time.time() - load_start:.1f}s")
         self._loaded_model_path = model_path
 
-    def _build_chat_prompt(
-        self,
-        prompt: str,
-        system_prompt: Optional[str] = None
-    ) -> str:
+    def _build_chat_prompt(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Build chat-formatted prompt for instruct models."""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # Use tokenizer's chat template if available
-        if self._tokenizer and hasattr(self._tokenizer, 'apply_chat_template'):
+        if hasattr(self._tokenizer, 'apply_chat_template'):
             return self._tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
+                messages, tokenize=False, add_generation_prompt=True
             )
-        else:
-            # Fallback for models without chat template
-            formatted = ""
-            if system_prompt:
-                formatted += f"System: {system_prompt}\n\n"
-            formatted += f"User: {prompt}\n\nAssistant:"
-            return formatted
 
-    def _generate(
-        self,
-        prompt: str,
-        max_new_tokens: int,
-        temperature: float,
-        do_sample: bool
-    ) -> str:
+        # Fallback for models without chat template
+        parts = [f"System: {system_prompt}\n\n"] if system_prompt else []
+        parts.append(f"User: {prompt}\n\nAssistant:")
+        return "".join(parts)
+
+    def _generate(self, prompt: str, max_new_tokens: int, temperature: float) -> str:
         """Generate response from model."""
         import torch
 
         inputs = self._tokenizer(prompt, return_tensors="pt")
         inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
 
+        do_sample = temperature > 0
         with torch.no_grad():
             outputs = self._model.generate(
                 **inputs,
@@ -139,10 +123,7 @@ class LocalLLMAdapter(AgentAdapter):
 
         # Decode only the new tokens
         input_length = inputs["input_ids"].shape[1]
-        generated_tokens = outputs[0][input_length:]
-        response = self._tokenizer.decode(generated_tokens, skip_special_tokens=True)
-
-        return response.strip()
+        return self._tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True).strip()
 
     async def run(
         self,
@@ -168,31 +149,23 @@ class LocalLLMAdapter(AgentAdapter):
         """
         log.info(f"LocalLLMAdapter executing with config: {task_config}")
 
-        # Validate inputs
         if "prompt" not in task_config:
             error_msg = "LocalLLMAdapter requires 'prompt' parameter in task_config"
             log.error(error_msg)
             return self.error_response(error_msg, error_type="missing_prompt")
 
-        # Get configuration
         model_name = task_config.get("model", self.model_name)
         max_new_tokens = task_config.get("max_new_tokens", self.DEFAULT_MAX_NEW_TOKENS)
         temperature = task_config.get("temperature", self.DEFAULT_TEMPERATURE)
         system_prompt = task_config.get("system_prompt")
-        do_sample = temperature > 0
 
         try:
-            # Resolve and load model
             model_path = self._resolve_model_path(model_name)
 
-            # Run model loading and inference in thread to not block event loop
             def _run_inference():
                 self._load_model(model_path)
-                formatted_prompt = self._build_chat_prompt(
-                    task_config["prompt"],
-                    system_prompt
-                )
-                return self._generate(formatted_prompt, max_new_tokens, temperature, do_sample)
+                formatted_prompt = self._build_chat_prompt(task_config["prompt"], system_prompt)
+                return self._generate(formatted_prompt, max_new_tokens, temperature)
 
             start_time = time.time()
             content = await asyncio.to_thread(_run_inference)
@@ -200,12 +173,9 @@ class LocalLLMAdapter(AgentAdapter):
 
             log.info(f"Inference completed in {response_time:.2f}s")
 
-            # Save output
-            output_files = {"raw_response": self.save_text_output(content, "response.txt")}
-
             return self.success_response(
                 summary=f"Local LLM inference completed. Response: {truncate_string(content, 100)}",
-                output_files=output_files,
+                output_files={"raw_response": self.save_text_output(content, "response.txt")},
                 metadata={
                     "model": model_name,
                     "model_path": model_path,
@@ -232,19 +202,20 @@ class LocalLLMAdapter(AgentAdapter):
 
     def unload_model(self):
         """Explicitly unload model to free GPU memory."""
-        if self._model is not None:
-            del self._model
-            del self._tokenizer
-            self._model = None
-            self._tokenizer = None
-            self._loaded_model_path = None
+        if self._model is None:
+            return
 
-            # Force CUDA memory cleanup
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except Exception:
-                pass
+        del self._model
+        del self._tokenizer
+        self._model = None
+        self._tokenizer = None
+        self._loaded_model_path = None
 
-            log.info("Model unloaded and GPU memory freed")
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+        log.info("Model unloaded and GPU memory freed")

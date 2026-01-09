@@ -13,6 +13,13 @@ from typing import Any, Dict, List, Optional
 
 from .extractor import extract_methods, check_ground_truth_match
 from .metrics import compute_system_metrics, generate_summary_table
+from ._shared import (
+    extract_raw_response,
+    build_success_result,
+    build_error_result,
+    add_ground_truth_matching,
+    generate_experiment_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,18 +42,12 @@ async def run_single_agent(
     Returns:
         Result dict with raw_response, extracted_methods, etc.
     """
-    # Import here to avoid circular imports
     from manyagents.main import ADAPTER_REGISTRY
 
     if adapter_name not in ADAPTER_REGISTRY:
-        return {
-            'success': False,
-            'error': f"Unknown adapter: {adapter_name}",
-            'raw_response': None
-        }
+        return build_error_result(f"Unknown adapter: {adapter_name}")
 
-    adapter_class = ADAPTER_REGISTRY[adapter_name]
-    adapter = adapter_class()
+    adapter = ADAPTER_REGISTRY[adapter_name]()
 
     task_config = {'prompt': prompt}
     if system_prompt:
@@ -58,42 +59,16 @@ async def run_single_agent(
         result = await adapter.run(task_config, {})
 
         if result['success']:
-            # Extract raw response text
-            raw_response = None
-            if 'raw_response' in result.get('output_files', {}):
-                response_path = result['output_files']['raw_response']
-                if isinstance(response_path, Path):
-                    raw_response = response_path.read_text()
-                else:
-                    raw_response = str(response_path)
-
-            # Extract methods from response
-            extraction = extract_methods(raw_response or '') if raw_response else {}
-
-            return {
-                'success': True,
-                'raw_response': raw_response,
-                'extracted_methods': extraction.get('extracted_methods', []),
-                'mentions_clustering': extraction.get('mentions_clustering', False),
-                'mentions_trajectory': extraction.get('mentions_trajectory', False),
-                'mentions_data_inspection': extraction.get('mentions_data_inspection', False),
-                'metadata': result.get('metadata', {})
-            }
-        else:
-            return {
-                'success': False,
-                'error': result.get('summary', 'Unknown error'),
-                'raw_response': None,
-                'metadata': result.get('metadata', {})
-            }
+            raw_response = extract_raw_response(result.get('output_files', {}))
+            return build_success_result(raw_response, result.get('metadata', {}))
+        return build_error_result(
+            result.get('summary', 'Unknown error'),
+            result.get('metadata', {})
+        )
 
     except Exception as e:
         log.error(f"Error running {adapter_name}: {e}", exc_info=True)
-        return {
-            'success': False,
-            'error': str(e),
-            'raw_response': None
-        }
+        return build_error_result(str(e))
 
 
 async def run_parallel_agents(
@@ -116,27 +91,17 @@ async def run_parallel_agents(
     """
     models = models or {}
 
-    tasks = []
-    for system in target_systems:
-        model = models.get(system)
-        task = run_single_agent(system, prompt, system_prompt, model)
-        tasks.append((system, task))
+    tasks = [
+        (system, run_single_agent(system, prompt, system_prompt, models.get(system)))
+        for system in target_systems
+    ]
 
-    # Run all in parallel
-    results = {}
     gathered = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
 
-    for (system, _), result in zip(tasks, gathered):
-        if isinstance(result, Exception):
-            results[system] = {
-                'success': False,
-                'error': str(result),
-                'raw_response': None
-            }
-        else:
-            results[system] = result
-
-    return results
+    return {
+        system: build_error_result(str(result)) if isinstance(result, Exception) else result
+        for (system, _), result in zip(tasks, gathered)
+    }
 
 
 async def run_invariance_experiment(
@@ -150,13 +115,7 @@ async def run_invariance_experiment(
     Run the full pipeline invariance experiment.
 
     Args:
-        scenarios: Dict mapping scenario_id to scenario config:
-            {
-                "text": "prompt text",
-                "expected_geometry": "trajectory|discrete|periodic|continuous",
-                "ground_truth_methods": ["method1", "method2"],
-                "failure_indicators": ["bad_method"]
-            }
+        scenarios: Dict mapping scenario_id to scenario config
         target_systems: List of AI systems to query
         system_prompt: Optional system prompt for all queries
         output_dir: Optional directory to save results
@@ -165,7 +124,7 @@ async def run_invariance_experiment(
     Returns:
         Full experiment results with metrics
     """
-    experiment_id = f"invariance_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    experiment_id = generate_experiment_id()
 
     log.info(f"Starting experiment {experiment_id}")
     log.info(f"Scenarios: {list(scenarios.keys())}")
@@ -173,46 +132,31 @@ async def run_invariance_experiment(
     if model_overrides:
         log.info(f"Model overrides: {model_overrides}")
 
-    # Run all scenarios
-    all_results = {}
-    for system in target_systems:
-        all_results[system] = {}
+    # Initialize results structure
+    all_results = {system: {} for system in target_systems}
 
+    # Run all scenarios
     for scenario_id, scenario in scenarios.items():
-        prompt = scenario['text']
         log.info(f"Running scenario {scenario_id}...")
 
-        # Run against all systems in parallel
         scenario_results = await run_parallel_agents(
-            prompt=prompt,
+            prompt=scenario['text'],
             target_systems=target_systems,
             system_prompt=system_prompt,
             models=model_overrides
         )
 
-        # Store results
         for system, result in scenario_results.items():
-            # Add ground truth matching
-            if result['success']:
-                is_match, match_details = check_ground_truth_match(
-                    result.get('extracted_methods', []),
-                    scenario.get('ground_truth_methods', []),
-                    scenario.get('failure_indicators', [])
-                )
-                result['matches_ground_truth'] = is_match
-                result['ground_truth_details'] = match_details
-
+            add_ground_truth_matching(result, scenario)
             all_results[system][scenario_id] = result
 
-    # Compute metrics for each system
-    metrics = {}
-    for system in target_systems:
-        metrics[system] = compute_system_metrics(
-            all_results[system],
-            scenarios
-        )
+    # Compute metrics
+    metrics = {
+        system: compute_system_metrics(all_results[system], scenarios)
+        for system in target_systems
+    }
 
-    # Assemble full results
+    # Assemble results
     experiment_results = {
         'experiment_id': experiment_id,
         'timestamp': datetime.now().isoformat(),
@@ -233,17 +177,15 @@ async def run_invariance_experiment(
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save full results
         results_path = output_dir / f"{experiment_id}_results.json"
         with open(results_path, 'w') as f:
             json.dump(experiment_results, f, indent=2, default=str)
         log.info(f"Results saved to {results_path}")
 
-        # Save summary table
         summary_md = generate_summary_table(experiment_results, format='markdown')
         summary_path = output_dir / f"{experiment_id}_summary.md"
         with open(summary_path, 'w') as f:
-            f.write(f"# Pipeline Invariance Experiment Results\n\n")
+            f.write("# Pipeline Invariance Experiment Results\n\n")
             f.write(f"**Experiment ID:** {experiment_id}\n")
             f.write(f"**Timestamp:** {experiment_results['timestamp']}\n\n")
             f.write("## Summary Metrics\n\n")
