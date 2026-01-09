@@ -18,6 +18,7 @@ dependencies = [
     "numpy>=1.20",
     "manylatents",
     "openai>=1.0.0",
+    "biomni>=0.0.2",
 ]
 
 [project.optional-dependencies]

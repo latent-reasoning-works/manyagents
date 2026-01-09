@@ -18,6 +18,8 @@ from manyagents.utils.helpers import (
 )
 from .openai_adapter import OpenAIAdapter
 from .cellforge_adapter import CellForgeAdapter
+from .biomni_adapter import BiomniAdapter
+from .kosmos_adapter import KosmosAdapter
 
 
 # =============================================================================
@@ -52,15 +54,46 @@ def cellforge_adapter(tmp_path):
     return CellForgeAdapter(cellforge_path=str(tmp_path))
 
 
-@pytest.fixture(params=["openai", "cellforge"])
-def any_adapter(request, tmp_path):
+@pytest.fixture
+def biomni_adapter(tmp_path, monkeypatch):
+    """Create Biomni adapter with mock data path."""
+    data_path = tmp_path / "biomni_data"
+    data_path.mkdir()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    return BiomniAdapter(data_path=str(data_path))
+
+
+@pytest.fixture
+def kosmos_adapter(tmp_path):
+    """Create Kosmos adapter with mock Python path."""
+    mock_python = tmp_path / "python"
+    mock_python.write_text("#!/bin/bash\necho mock")
+    mock_python.chmod(0o755)
+    return KosmosAdapter(
+        kosmos_python=str(mock_python),
+        kosmos_path=str(tmp_path)
+    )
+
+
+@pytest.fixture(params=["openai", "cellforge", "biomni", "kosmos"])
+def any_adapter(request, tmp_path, monkeypatch):
     """Parameterized fixture returning any adapter type."""
     if request.param == "openai":
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-            return OpenAIAdapter()
-    else:
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        return OpenAIAdapter()
+    elif request.param == "cellforge":
         (tmp_path / "main.py").write_text("# mock")
         return CellForgeAdapter(cellforge_path=str(tmp_path))
+    elif request.param == "biomni":
+        data_path = tmp_path / "biomni_data"
+        data_path.mkdir()
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        return BiomniAdapter(data_path=str(data_path))
+    else:  # kosmos
+        mock_python = tmp_path / "python"
+        mock_python.write_text("#!/bin/bash\necho mock")
+        mock_python.chmod(0o755)
+        return KosmosAdapter(kosmos_python=str(mock_python), kosmos_path=str(tmp_path))
 
 
 # =============================================================================
@@ -294,3 +327,176 @@ class TestCellForge:
     def test_build_command_all(self, cellforge_adapter):
         cmd = cellforge_adapter._build_command("all", Path("/data.h5ad"))
         assert "--phase" not in cmd
+
+
+# =============================================================================
+# Biomni-Specific Tests
+# =============================================================================
+
+class TestBiomni:
+    """Biomni adapter specific tests."""
+
+    def test_init_with_path(self, biomni_adapter):
+        assert biomni_adapter.data_path.exists()
+
+    def test_init_env_path(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("BIOMNI_DATA_PATH", str(tmp_path))
+        adapter = BiomniAdapter()
+        assert adapter.data_path == tmp_path
+
+    @pytest.mark.asyncio
+    async def test_missing_task(self, biomni_adapter):
+        result = await biomni_adapter.run(task_config={}, input_files={})
+        assert result["success"] is False
+        assert result["metadata"]["error"] == "missing_parameter"
+
+    @pytest.mark.asyncio
+    async def test_missing_api_key(self, tmp_path):
+        with patch.dict(os.environ, {}, clear=True):
+            adapter = BiomniAdapter(data_path=str(tmp_path))
+            result = await adapter.run(
+                task_config={"task": "test task"},
+                input_files={}
+            )
+            assert result["metadata"]["error"] == "missing_api_key"
+
+    @pytest.mark.asyncio
+    async def test_successful_run(self, biomni_adapter, tmp_path):
+        import sys
+
+        # Create mock module structure
+        mock_a1_class = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.go.return_value = "Analysis complete"
+        mock_a1_class.return_value = mock_agent_instance
+
+        mock_agent_module = MagicMock()
+        mock_agent_module.A1 = mock_a1_class
+
+        mock_biomni = MagicMock()
+        mock_biomni.agent = mock_agent_module
+
+        with patch.dict(sys.modules, {
+            "biomni": mock_biomni,
+            "biomni.agent": mock_agent_module
+        }):
+            os.chdir(tmp_path)
+            result = await biomni_adapter.run(
+                task_config={"task": "Analyze dataset"},
+                input_files={}
+            )
+            assert result["success"] is True
+            assert "execution_time" in result["metadata"]
+
+    @pytest.mark.asyncio
+    async def test_import_error(self, tmp_path, monkeypatch):
+        import sys
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        adapter = BiomniAdapter(data_path=str(tmp_path))
+
+        # Clear any cached biomni import and force ImportError
+        modules_to_remove = [k for k in sys.modules if k.startswith("biomni")]
+        for mod in modules_to_remove:
+            sys.modules.pop(mod, None)
+
+        with patch.dict(sys.modules, {"biomni": None}):
+            result = await adapter.run(
+                task_config={"task": "test"},
+                input_files={}
+            )
+            assert result["success"] is False
+            assert result["metadata"]["error"] == "import_error"
+
+
+# =============================================================================
+# Kosmos-Specific Tests
+# =============================================================================
+
+class TestKosmos:
+    """Kosmos adapter specific tests."""
+
+    def test_init_with_paths(self, kosmos_adapter):
+        assert kosmos_adapter.kosmos_python is not None
+
+    def test_init_env_paths(self, monkeypatch, tmp_path):
+        mock_python = tmp_path / "python3"
+        mock_python.write_text("#!/bin/bash\necho mock")
+        mock_python.chmod(0o755)
+
+        monkeypatch.setenv("KOSMOS_PYTHON", str(mock_python))
+        monkeypatch.setenv("KOSMOS_PATH", str(tmp_path))
+        adapter = KosmosAdapter()
+        assert adapter.kosmos_python == str(mock_python)
+        assert adapter.kosmos_path == tmp_path
+
+    @pytest.mark.asyncio
+    async def test_missing_python_path(self, tmp_path):
+        adapter = KosmosAdapter(kosmos_path=str(tmp_path))
+        result = await adapter.run(
+            task_config={"research_question": "test"},
+            input_files={}
+        )
+        assert result["success"] is False
+        assert result["metadata"]["error"] == "configuration_error"
+
+    @pytest.mark.asyncio
+    async def test_missing_question(self, kosmos_adapter):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+            result = await kosmos_adapter.run(task_config={}, input_files={})
+            assert result["success"] is False
+            assert result["metadata"]["error"] == "missing_parameter"
+
+    @pytest.mark.asyncio
+    async def test_successful_run(self, kosmos_adapter, tmp_path):
+        mock_result = SubprocessResult(
+            stdout="Research complete",
+            stderr="",
+            exit_code=0,
+            timed_out=False
+        )
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+            with patch("manyagents.adapters.kosmos_adapter.run_subprocess",
+                       new_callable=AsyncMock, return_value=mock_result):
+                os.chdir(tmp_path)
+                result = await kosmos_adapter.run(
+                    task_config={"research_question": "What is UMAP?"},
+                    input_files={}
+                )
+                assert result["success"] is True
+                assert "execution_time" in result["metadata"]
+
+    @pytest.mark.asyncio
+    async def test_timeout(self, kosmos_adapter, tmp_path):
+        mock_result = SubprocessResult(
+            stdout="partial",
+            stderr="",
+            exit_code=-1,
+            timed_out=True
+        )
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+            with patch("manyagents.adapters.kosmos_adapter.run_subprocess",
+                       new_callable=AsyncMock, return_value=mock_result):
+                os.chdir(tmp_path)
+                result = await kosmos_adapter.run(
+                    task_config={"research_question": "test", "timeout": 1},
+                    input_files={}
+                )
+                assert result["success"] is False
+                assert "timed out" in result["summary"].lower()
+
+    def test_build_command_basic(self, kosmos_adapter):
+        cmd = kosmos_adapter._build_command({"research_question": "test?"})
+        assert "test?" in cmd
+        assert "-m" in cmd
+        assert "kosmos.cli" in cmd
+
+    def test_build_command_with_domain(self, kosmos_adapter):
+        cmd = kosmos_adapter._build_command({
+            "research_question": "test?",
+            "domain": "biology"
+        })
+        assert "--domain" in cmd
+        assert "biology" in cmd
