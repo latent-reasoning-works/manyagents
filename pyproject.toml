@@ -17,6 +17,7 @@ dependencies = [
     "hydra-submitit-launcher>=1.2",
     "numpy>=1.20",
     "manylatents",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -46,3 +47,8 @@ requires-dist = ["numpy>=1.25"]
 
 [tool.uv.sources]
 manylatents = { git = "https://github.com/latent-reasoning-works/manylatents", branch = "main" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "manyagents"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"

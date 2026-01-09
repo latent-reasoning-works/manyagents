@@ -13,8 +13,9 @@ import hydra
 from omegaconf import DictConfig
 
 from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
+from manyagents.adapters.openai_adapter import OpenAIAdapter
+from manyagents.adapters.cellforge_adapter import CellForgeAdapter
 # from manyagents.adapters.biodiscovery_adapter import BioDiscoveryAgentAdapter  # Coming soon
-# from manyagents.adapters.cellforge_adapter import CellForgeAdapter  # Coming soon
 
 log = logging.getLogger(__name__)
 
@@ -45,8 +46,9 @@ except ImportError:
 
 ADAPTER_REGISTRY = {
     "manylatents": ManyLatentsAdapter,
+    "openai": OpenAIAdapter,
+    "cellforge": CellForgeAdapter,
     # "biodiscovery": BioDiscoveryAgentAdapter,  # Placeholder for Phase 2
-    # "cellforge": CellForgeAdapter,  # Placeholder for Phase 2
 }
 
 
