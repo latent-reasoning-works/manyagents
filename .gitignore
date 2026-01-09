@@ -27,6 +27,7 @@ htmlcov/
 
 # ML/AI experiment outputs
 outputs/
+results/
 wandb/
 .wandb/
 

@@ -1,14 +1,34 @@
 """
-Trainable models for RL optimization.
-
-NOTE: This module is being migrated to Geomancy. The RL training loop,
-reward computation, and G-vector extraction are Geomancy's domain.
-
-This module provides base classes that may be useful for manyAgents
-internal training, but full RL infrastructure lives in Geomancy.
+Data models for manyAgents orchestration.
 """
 
-from .rl_module import RLModule
-from .sb3_module import SB3Module
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
 
-__all__ = ["RLModule", "SB3Module"]
+
+@dataclass
+class ExecutionResult:
+    """Standardized output from any agent adapter."""
+    agent_name: str
+    status: str  # 'success' or 'failure'
+    summary: str
+    output_files: Dict[str, str] = field(default_factory=dict)
+    error_message: Optional[str] = None
+
+
+@dataclass
+class WorkflowState:
+    """A state-conserving object for a single workflow run."""
+    goal: str
+    history: List[ExecutionResult] = field(default_factory=list)
+
+    def add_result(self, result: ExecutionResult):
+        self.history.append(result)
+
+    def last_summary(self) -> Optional[str]:
+        if not self.history:
+            return None
+        return self.history[-1].summary
+
+
+__all__ = ["ExecutionResult", "WorkflowState"]
