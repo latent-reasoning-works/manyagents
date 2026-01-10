@@ -24,8 +24,8 @@ active_agents:
   - openai
   - local_llm
 
-# Use trajectory scenario for quick comparison
-scenarios:
+# Use trajectory prompt for quick comparison
+prompts:
   trajectory:
     id: trajectory
     text: >

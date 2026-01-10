@@ -49,14 +49,14 @@ def compute_pairwise_jaccard(method_sets: Dict[str, Set[str]]) -> Dict[str, floa
 
 def compute_system_metrics(
     system_results: Dict[str, Dict[str, Any]],
-    scenarios: Dict[str, Dict[str, Any]]
+    prompts: Dict[str, Dict[str, Any]]
 ) -> Dict[str, float]:
     """
-    Compute aggregate metrics for a single AI system across all scenarios.
+    Compute aggregate metrics for a single AI system across all prompts.
 
     Args:
-        system_results: Dict mapping scenario_id -> result for this system
-        scenarios: Dict mapping scenario_id -> scenario config with ground_truth
+        system_results: Dict mapping prompt_id -> result for this system
+        prompts: Dict mapping prompt_id -> prompt config with ground_truth
 
     Returns:
         Dict with aggregate metrics for this system
@@ -65,19 +65,19 @@ def compute_system_metrics(
     ground_truth_matches = []
     clustering_for_all = []
 
-    for scenario_id, result in system_results.items():
+    for prompt_id, result in system_results.items():
         if not result.get('success', False):
             continue
 
         methods = result.get('extracted_methods', [])
-        method_sets[scenario_id] = {m.lower() for m in methods}
+        method_sets[prompt_id] = {m.lower() for m in methods}
 
         # Check ground truth match
-        scenario = scenarios.get(scenario_id, {})
+        prompt_config = prompts.get(prompt_id, {})
         is_match, _ = check_ground_truth_match(
             methods,
-            scenario.get('ground_truth_methods', []),
-            scenario.get('failure_indicators', [])
+            prompt_config.get('ground_truth_methods', []),
+            prompt_config.get('failure_indicators', [])
         )
         ground_truth_matches.append(float(is_match))
         clustering_for_all.append(float(result.get('mentions_clustering', False)))
@@ -90,7 +90,7 @@ def compute_system_metrics(
         'jaccard_max': jaccard_stats['max'],
         'ground_truth_match_rate': mean(ground_truth_matches) if ground_truth_matches else 0.0,
         'clustering_for_all_rate': mean(clustering_for_all) if clustering_for_all else 0.0,
-        'scenarios_evaluated': len(system_results)
+        'prompts_evaluated': len(system_results)
     }
 
 

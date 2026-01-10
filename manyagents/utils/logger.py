@@ -132,17 +132,17 @@ class ExperimentLogger:
             )
         wandb.log({"scenarios": scenario_table})
 
-    def log_scenario_result(
+    def log_prompt_result(
         self,
         system: str,
-        scenario_id: str,
+        prompt_id: str,
         result: Dict[str, Any],
     ) -> None:
-        """Log per-scenario results with extracted methods.
+        """Log per-prompt results with extracted methods.
 
         Args:
             system: Name of the AI system
-            scenario_id: ID of the scenario
+            prompt_id: ID of the prompt
             result: Result dict from run_single_agent
         """
         if not self.enabled or not self.run:
@@ -151,7 +151,7 @@ class ExperimentLogger:
         wandb = _get_wandb()
 
         success = result.get("success", False)
-        prefix = f"{system}/{scenario_id}"
+        prefix = f"{system}/{prompt_id}"
 
         metrics = {
             f"{prefix}/success": int(success),
@@ -169,6 +169,9 @@ class ExperimentLogger:
 
         wandb.log(metrics, step=self._step)
         self._step += 1
+
+    # Backwards compatibility alias
+    log_scenario_result = log_prompt_result
 
     def log_system_metrics(self, system: str, metrics: Dict[str, float]) -> None:
         """Log aggregate metrics for a system.
@@ -188,7 +191,7 @@ class ExperimentLogger:
             f"summary/{system}/jaccard_max": metrics.get("jaccard_max", 0),
             f"summary/{system}/ground_truth_match_rate": metrics.get("ground_truth_match_rate", 0),
             f"summary/{system}/clustering_for_all_rate": metrics.get("clustering_for_all_rate", 0),
-            f"summary/{system}/scenarios_evaluated": metrics.get("scenarios_evaluated", 0),
+            f"summary/{system}/prompts_evaluated": metrics.get("prompts_evaluated", 0),
         })
 
     def log_summary_table(self, all_metrics: Dict[str, Dict[str, float]]) -> None:
@@ -217,7 +220,7 @@ class ExperimentLogger:
                 round(m.get("jaccard_similarity_across_prompts", 0), 3),
                 round(m.get("ground_truth_match_rate", 0), 3),
                 round(m.get("clustering_for_all_rate", 0), 3),
-                m.get("scenarios_evaluated", 0),
+                m.get("prompts_evaluated", 0),
             )
 
         wandb.log({"results_summary": results_table})
@@ -235,7 +238,7 @@ class ExperimentLogger:
             return
 
         wandb = _get_wandb()
-        from .extractor import METHOD_CATEGORIES
+        from ..metrics.extractor import METHOD_CATEGORIES
 
         # Method recommendations per system/scenario
         methods_table = wandb.Table(columns=[
@@ -382,8 +385,10 @@ class NullLogger(ExperimentLogger):
     def log_config(self, *args, **kwargs):
         pass
 
-    def log_scenario_result(self, *args, **kwargs):
+    def log_prompt_result(self, *args, **kwargs):
         pass
+
+    log_scenario_result = log_prompt_result  # Backwards compat
 
     def log_system_metrics(self, *args, **kwargs):
         pass

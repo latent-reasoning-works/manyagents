@@ -33,8 +33,8 @@ system_prompt: >
 active_agents:
   - mock
 
-# Minimal scenarios for quick testing
-scenarios:
+# Minimal prompts for quick testing
+prompts:
   test_discrete:
     text: |
       I have a dataset with 1000 samples that forms distinct clusters.

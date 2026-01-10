@@ -1,8 +1,11 @@
 """
-ManyAgents: Multi-agent orchestration for scientific workflows.
+ManyAgents: LLM agent testing framework.
 
-This package provides a flexible orchestration layer for chaining diverse
-agents (manylatents, BioDiscoveryAgent, CellForge, etc.) in complex workflows.
+Tests whether LLMs can reason about data geometry by dispatching
+prompts to multiple agents (Claude, GPT-4, local LLMs) and evaluating
+their responses against ground truth methods.
+
+For pipeline orchestration, use Geomancy instead.
 
 ## Core Design Principles
 

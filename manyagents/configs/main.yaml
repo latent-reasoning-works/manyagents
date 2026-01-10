@@ -1,5 +1,5 @@
 # @package _global_
-# Main configuration for ManyAgents orchestrator
+# Main configuration for ManyAgents LLM testing framework
 
 defaults:
   - _self_
@@ -8,10 +8,6 @@ defaults:
   - optional experiment: null
 
 name: manyagents_default
-
-# Default workflow (empty - provide via experiment config or CLI overrides)
-workflow:
-  steps: []
 
 # Output directory
 output_dir: outputs/${name}_${now:%Y-%m-%d_%H-%M-%S}

@@ -1,5 +1,5 @@
 # @package _global_
-# Geometric reasoning experiment: 3 scenarios × 3 conditions = 9 prompts
+# Geometric reasoning experiment: 3 domains × 3 conditions = 9 prompts
 #
 # Tests whether LLMs can reason about data geometry:
 # - Condition A: Experiment-only (biology, no geometric hints)
@@ -33,8 +33,8 @@ system_prompt: >
 active_agents:
   - local_llm
 
-# All 9 scenarios: 3 biology domains × 3 information conditions
-scenarios:
+# All 9 prompts: 3 biology domains × 3 information conditions
+prompts:
   # === IMMUNOLOGY (Discrete Clusters) ===
   immunology_A:
     text: |

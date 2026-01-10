@@ -1,5 +1,5 @@
 # @package _global_
-# Golden trajectory test - single scenario to validate infrastructure
+# Golden trajectory test - single prompt to validate infrastructure
 #
 # Usage:
 #   manyagents experiment=invariance_golden
@@ -29,8 +29,8 @@ system_prompt: >
 active_agents:
   - local_llm
 
-# Scenarios to test (references prompts config)
-scenarios:
+# Prompts to test (references prompts config)
+prompts:
   trajectory: ${prompt}
 
 # Evaluation settings

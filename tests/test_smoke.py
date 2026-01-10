@@ -81,21 +81,10 @@ class TestMockAdapterExecution:
         assert "methods_mentioned" in result["metadata"]
 
 
-class TestRegistryLoads:
-    """Verify adapter registry loads correctly."""
+class TestMainEntrypoint:
+    """Verify main entry point works."""
 
-    @pytest.mark.skipif(SKIP_MANYLATENTS, reason="manylatents is private")
-    def test_registry_has_adapters(self):
-        from manyagents.main import ADAPTER_REGISTRY
-
-        expected = ["mock", "claude", "openai", "local_llm", "manylatents"]
-        for name in expected:
-            assert name in ADAPTER_REGISTRY, f"Missing adapter: {name}"
-
-    def test_registry_has_core_adapters(self):
-        """Test adapters that don't require manylatents."""
-        from manyagents.main import ADAPTER_REGISTRY
-
-        expected = ["mock", "claude", "openai", "local_llm"]
-        for name in expected:
-            assert name in ADAPTER_REGISTRY, f"Missing adapter: {name}"
+    def test_main_module_imports(self):
+        """Test main.py can be imported without errors."""
+        from manyagents import main
+        assert hasattr(main, 'main')

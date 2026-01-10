@@ -27,8 +27,8 @@ active_agents:
   - openai
   - local_llm
 
-# All 4 scenarios with different geometries
-scenarios:
+# All 4 prompts with different geometries
+prompts:
   A_discrete:
     id: discrete
     text: >
