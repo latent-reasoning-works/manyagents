@@ -1,0 +1,87 @@
+# Embryoid Body dataset - Single-cell differentiation scenario
+# Ground truth: Trajectory analysis methods (differentiation process)
+# Clustering may help identify cell types, but trajectory is key
+
+scenario_name: embryoid_body
+domain: single_cell_biology
+
+geometry:
+  type: differentiation_trajectory
+  expected_structure: >
+    Embryoid bodies are 3D aggregates of pluripotent stem cells that spontaneously
+    differentiate into various cell types. The data captures cells at different
+    stages of differentiation, forming a trajectory from pluripotent to
+    differentiated states. Structure is primarily trajectory-like with possible
+    branching toward different lineages.
+
+ground_truth:
+  appropriate_methods:
+    - umap
+    - phate
+    - diffusion_map
+    - monocle
+    - slingshot
+    - paga
+    - pseudotime
+    - trajectory_inference
+    - rna_velocity
+  secondary_methods:
+    - leiden
+    - louvain
+  inappropriate_methods:
+    - kmeans
+    - simple_pca_only
+  failure_indicators:
+    - clustering_only
+    - ignore_trajectory
+
+prompts:
+  dr_recommendation:
+    id: embryoid_body_dr
+    text: |
+      I have single-cell RNA-seq data from embryoid bodies - 3D stem cell
+      aggregates undergoing spontaneous differentiation. The dataset contains
+      ~8000 cells sampled over a 14-day differentiation time course.
+
+      I want to visualize the differentiation process and understand how
+      cells progress from pluripotent to differentiated states. What
+      dimensionality reduction method would you recommend for this biological
+      context, and what downstream analyses should I consider?
+    expected_geometry: differentiation_trajectory
+    ground_truth_methods:
+      - umap
+      - phate
+      - diffusion_map
+      - trajectory
+      - pseudotime
+      - monocle
+      - slingshot
+    failure_indicators:
+      - clustering_only
+      - kmeans_only
+
+  clustering_appropriateness:
+    id: embryoid_body_clustering
+    text: |
+      I have single-cell RNA-seq data from differentiating embryoid bodies.
+      Cells were collected over 14 days as stem cells differentiated into
+      various cell types. I'm wondering whether I should use clustering
+      (like Leiden) or trajectory analysis (like Monocle or Slingshot).
+
+      What analysis approach is most appropriate for this differentiation
+      time-course data? Can I use both clustering and trajectory methods,
+      or should I choose one?
+    expected_geometry: differentiation_trajectory
+    ground_truth_methods:
+      - trajectory
+      - pseudotime
+      - monocle
+      - slingshot
+      - paga
+      - diffusion_map
+      - leiden
+      - louvain
+    failure_indicators:
+      - clustering_only
+      - ignore_trajectory
+      - kmeans_only

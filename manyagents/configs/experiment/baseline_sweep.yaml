@@ -1,0 +1,80 @@
+# @package _global_
+# Baseline sweep: adapters × datasets × algorithms × dimensions
+# Jobs: 3×3×4×3 = 108 (or 36 with single adapter)
+name: baseline_sweep
+
+# Defaults (overridden by sweeper)
+adapter: local_llm
+dataset: swissroll
+algorithm_name: PCA
+n_components: 2
+
+defaults:
+  - /agent@agents.claude: claude
+  - /agent@agents.openai: openai
+  - /agent@agents.local_llm: local_llm
+  - _self_
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      adapter: local_llm  # Add claude,openai if API keys available
+      dataset: swissroll,torus,embryoid_body
+      algorithm_name: PCA,UMAP,PHATE,TSNE
+      n_components: 2,10,50
+  run:
+    dir: outputs/${name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: outputs/${name}/sweeps/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${adapter}_${dataset}_${algorithm_name}_${n_components}
+
+wandb:
+  enabled: true
+  project: manyagents_baseline
+  group: sweep_${now:%Y%m%d}
+  tags: [baseline, sweep, "${adapter}", "${dataset}", "${algorithm_name}"]
+  name: ${adapter}_${dataset}_${algorithm_name}_n${n_components}
+
+system_prompt: |
+  You are a computational scientist evaluating dimensionality reduction methods.
+  Given a dataset description and an algorithm with specific parameters, assess:
+  1. Is this algorithm appropriate for the data structure?
+  2. Are the parameters (especially n_components) reasonable?
+  3. What metrics should we use to evaluate the embedding quality?
+  Be specific and justify your recommendations based on the data geometry.
+
+active_agents: ["${adapter}"]
+
+prompts:
+  algorithm_evaluation:
+    id: algo_eval_${dataset}_${algorithm_name}
+    text: |
+      Dataset: ${dataset}
+      - swissroll: 3D Swiss roll manifold, 1000 points, continuous spiral
+      - torus: 3D torus surface, 1500 points, periodic in two directions
+      - embryoid_body: Single-cell RNA-seq, ~8000 cells, differentiation trajectory
+
+      Proposed: ${algorithm_name} with n_components=${n_components}
+
+      1. Is ${algorithm_name} appropriate for ${dataset}? Why or why not?
+      2. Is n_components=${n_components} a good choice? What trade-offs?
+      3. What evaluation metrics would you use?
+    expected_geometry: ${dataset}
+    ground_truth_methods: ["${algorithm_name}"]
+    failure_indicators: []
+
+evaluation:
+  compute_jaccard: true
+  compute_ground_truth_match: true
+
+manylatents:
+  enabled: true
+  experiment: single_algorithm
+  data: ${dataset}
+  algorithm:
+    name: ${algorithm_name}
+    n_components: ${n_components}
+  metrics: [trustworthiness, continuity, participation_ratio]
+
+output_dir: outputs/${name}/${adapter}/${dataset}/${algorithm_name}_n${n_components}

@@ -1,0 +1,23 @@
+# @package _global_
+# Mila SLURM config for sweep jobs
+defaults:
+  - override /hydra/launcher: submitit_slurm
+
+hydra:
+  mode: MULTIRUN
+  launcher:
+    _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+    cpus_per_task: 4
+    gpus_per_task: 1
+    mem_gb: 48
+    timeout_min: 120
+    partition: main
+    array_parallelism: 64
+    tasks_per_node: 1
+    nodes: 1
+    setup:
+      - export HF_HOME=/network/weights/.cache/huggingface
+      - export TRANSFORMERS_CACHE=/network/weights/.cache/huggingface
+
+wandb:
+  group: sweep_${now:%Y%m%d}_${oc.env:SLURM_ARRAY_JOB_ID,local}

@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -10,6 +12,11 @@ from .base import AgentAdapter, AdapterResult
 from manyagents.utils.helpers import truncate_string
 
 log = logging.getLogger(__name__)
+
+# Global lock for model loading to prevent race conditions when multiple
+# prompts are processed in parallel. Without this, concurrent calls to
+# _load_model() can cause "Cannot copy out of meta tensor" errors.
+_MODEL_LOAD_LOCK = threading.Lock()
 
 # Default model paths on the cluster
 DEFAULT_MODEL_PATHS = {
@@ -61,31 +68,39 @@ class LocalLLMAdapter(AgentAdapter):
         )
 
     def _load_model(self, model_path: str):
-        """Lazily load model and tokenizer."""
+        """Lazily load model and tokenizer (thread-safe)."""
+        # Quick check without lock (optimization for common case)
         if self._model is not None and self._loaded_model_path == model_path:
             return
 
-        try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            import torch
-        except ImportError:
-            raise ImportError(
-                "transformers package not installed. Run 'uv add transformers accelerate'"
+        # Thread-safe loading with global lock
+        with _MODEL_LOAD_LOCK:
+            # Double-check after acquiring lock (another thread may have loaded)
+            if self._model is not None and self._loaded_model_path == model_path:
+                log.debug("Model already loaded by another thread")
+                return
+
+            try:
+                from transformers import AutoModelForCausalLM, AutoTokenizer
+                import torch
+            except ImportError:
+                raise ImportError(
+                    "transformers package not installed. Run 'uv add transformers accelerate'"
+                )
+
+            log.info(f"Loading model from {model_path}...")
+            load_start = time.time()
+
+            self._tokenizer = AutoTokenizer.from_pretrained(model_path)
+            self._model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=self.device_map,
+                trust_remote_code=True,
             )
 
-        log.info(f"Loading model from {model_path}...")
-        load_start = time.time()
-
-        self._tokenizer = AutoTokenizer.from_pretrained(model_path)
-        self._model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.bfloat16,
-            device_map=self.device_map,
-            trust_remote_code=True,
-        )
-
-        log.info(f"Model loaded in {time.time() - load_start:.1f}s")
-        self._loaded_model_path = model_path
+            log.info(f"Model loaded in {time.time() - load_start:.1f}s")
+            self._loaded_model_path = model_path
 
     def _build_chat_prompt(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Build chat-formatted prompt for instruct models."""
@@ -173,9 +188,13 @@ class LocalLLMAdapter(AgentAdapter):
 
             log.info(f"Inference completed in {response_time:.2f}s")
 
+            # Use unique filename to avoid overwrite when processing multiple prompts
+            unique_id = uuid.uuid4().hex[:8]
+            response_file = f"response_{unique_id}.txt"
+
             return self.success_response(
                 summary=f"Local LLM inference completed. Response: {truncate_string(content, 100)}",
-                output_files={"raw_response": self.save_text_output(content, "response.txt")},
+                output_files={"raw_response": self.save_text_output(content, response_file)},
                 metadata={
                     "model": model_name,
                     "model_path": model_path,

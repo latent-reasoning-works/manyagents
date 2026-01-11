@@ -1,0 +1,26 @@
+# @package _global_
+
+# Resource configuration for LocalLLMAdapter (Llama, OLMo models)
+# Requires GPU with sufficient VRAM for model loading
+
+hydra:
+  launcher:
+    # GPU resources - Llama 3.1-8B needs ~16GB VRAM
+    cpus_per_task: 4
+    gpus_per_task: 1
+    mem: 48G
+
+    # Lower parallelism - one model per GPU
+    array_parallelism: 8
+
+    # Time limit (model loading takes time + inference)
+    time_limit: "04:00:00"
+
+    # Partition with A100 or similar for larger models
+    # partition: "long"
+
+    # Setup commands for HuggingFace models
+    setup_commands:
+      - echo "Loading local LLM on GPU $CUDA_VISIBLE_DEVICES"
+      - export HF_HOME=/network/weights/.cache/huggingface
+      - export TRANSFORMERS_CACHE=/network/weights/.cache/huggingface

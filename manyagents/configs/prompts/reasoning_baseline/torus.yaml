@@ -1,0 +1,78 @@
+# Torus dataset - Periodic/cyclic manifold scenario
+# Ground truth: Methods that handle cyclic structure
+# Clustering is NOT appropriate (continuous periodic structure)
+
+scenario_name: torus
+domain: synthetic_manifold
+
+geometry:
+  type: periodic_manifold
+  expected_structure: >
+    The torus is a donut-shaped surface - a 2D manifold embedded in 3D space.
+    It has periodic structure in two dimensions (like the surface of a donut).
+    Points wrap around both the major and minor circles. Structure is continuous
+    with no discrete clusters, but has cyclic/periodic properties.
+
+ground_truth:
+  appropriate_methods:
+    - umap
+    - phate
+    - diffusion_map
+    - isomap
+    - circular_coordinates
+    - persistent_homology
+  inappropriate_methods:
+    - leiden
+    - louvain
+    - kmeans
+    - hdbscan
+  failure_indicators:
+    - clustering
+    - cluster_analysis
+    - discrete_groups
+
+prompts:
+  dr_recommendation:
+    id: torus_dr
+    text: |
+      I have a dataset representing points sampled from a torus (donut shape)
+      embedded in 3D space. The data has 1500 points and forms a continuous
+      surface with periodic structure - points wrap around in two directions.
+
+      I need to reduce this to 2D for visualization. What dimensionality
+      reduction approach would best preserve the cyclic/periodic nature of
+      this manifold? What considerations should I keep in mind?
+    expected_geometry: periodic_manifold
+    ground_truth_methods:
+      - umap
+      - phate
+      - diffusion_map
+      - isomap
+      - circular
+      - periodic
+    failure_indicators:
+      - clustering
+      - kmeans
+      - leiden
+
+  clustering_appropriateness:
+    id: torus_clustering
+    text: |
+      I have data points sampled from a torus surface in 3D. The structure
+      is continuous and periodic - no obvious breaks or gaps. My PI asked
+      me to run Leiden clustering to find communities in the data.
+
+      Does clustering make sense for a torus dataset? What would be a more
+      appropriate analysis approach for this type of geometric structure?
+    expected_geometry: periodic_manifold
+    ground_truth_methods:
+      - manifold_learning
+      - topology
+      - dimensionality_reduction
+      - umap
+      - phate
+    failure_indicators:
+      - yes_cluster
+      - kmeans
+      - leiden
+      - louvain

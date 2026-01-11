@@ -1,0 +1,203 @@
+# @package _global_
+# LLM Reasoning Baseline - Test geometric understanding across datasets
+#
+# Tests if LLMs can give context-aware recommendations for:
+# - SwissRoll (continuous manifold - clustering NOT appropriate)
+# - Torus (periodic manifold - clustering NOT appropriate)
+# - Embryoid Body (differentiation trajectory - trajectory analysis needed)
+#
+# Usage:
+#   manyagents experiment=reasoning_baseline
+#   manyagents experiment=reasoning_baseline wandb.enabled=true
+#   manyagents experiment=reasoning_baseline agents.local_llm.config.model=llama-3.3-70b
+
+name: llm_reasoning_baseline
+
+wandb:
+  enabled: true
+  project: manyagents_llm_baseline
+  tags:
+    - reasoning-baseline
+    - geometric-awareness
+    - llama-3.1-8b
+
+defaults:
+  - /agent@agents.local_llm: local_llm
+  - _self_
+
+# System prompt for geometric reasoning
+system_prompt: |
+  You are a computational scientist and machine learning expert with deep knowledge
+  of dimensionality reduction, manifold learning, and clustering methods.
+
+  When recommending analysis methods, consider:
+  1. The geometric structure of the data (manifolds, clusters, trajectories)
+  2. Whether the data is continuous or discrete
+  3. The specific domain context (synthetic data vs biological data)
+
+  Provide specific method recommendations with brief justifications.
+  Be concise but thorough in your reasoning.
+
+# Which agents to run
+active_agents:
+  - local_llm
+
+# All prompts for the baseline experiment
+prompts:
+  # SwissRoll - Continuous manifold
+  swissroll_dr:
+    id: swissroll_dr
+    text: |
+      I have a dataset called SwissRoll with 1000 3-dimensional data points.
+      The data forms a continuous spiral pattern in 3D space - imagine a
+      2D sheet that has been rolled up like a Swiss roll pastry.
+
+      I want to visualize this data in 2D while preserving the underlying
+      manifold structure. What dimensionality reduction method would you
+      recommend and why?
+    expected_geometry: continuous_manifold
+    ground_truth_methods:
+      - umap
+      - phate
+      - diffusion_map
+      - isomap
+      - tsne
+      - lle
+      - manifold
+    failure_indicators:
+      - clustering
+      - kmeans
+      - leiden
+      - louvain
+
+  swissroll_clustering:
+    id: swissroll_clustering
+    text: |
+      I have a SwissRoll dataset - 1000 points forming a continuous spiral
+      manifold in 3D space. A colleague suggested I should run clustering
+      (like k-means or Leiden) to identify groups in the data.
+
+      Is clustering appropriate for this type of data structure? Why or why not?
+      What would you recommend instead?
+    expected_geometry: continuous_manifold
+    ground_truth_methods:
+      - manifold
+      - dimensionality_reduction
+      - umap
+      - phate
+      - not_appropriate
+      - inappropriate
+    failure_indicators:
+      - cluster
+      - kmeans
+      - leiden
+      - louvain
+
+  # Torus - Periodic manifold
+  torus_dr:
+    id: torus_dr
+    text: |
+      I have a dataset representing points sampled from a torus (donut shape)
+      embedded in 3D space. The data has 1500 points and forms a continuous
+      surface with periodic structure - points wrap around in two directions.
+
+      I need to reduce this to 2D for visualization. What dimensionality
+      reduction approach would best preserve the cyclic/periodic nature of
+      this manifold? What considerations should I keep in mind?
+    expected_geometry: periodic_manifold
+    ground_truth_methods:
+      - umap
+      - phate
+      - diffusion_map
+      - isomap
+      - circular
+      - periodic
+      - topology
+    failure_indicators:
+      - clustering
+      - kmeans
+      - leiden
+
+  torus_clustering:
+    id: torus_clustering
+    text: |
+      I have data points sampled from a torus surface in 3D. The structure
+      is continuous and periodic - no obvious breaks or gaps. My PI asked
+      me to run Leiden clustering to find communities in the data.
+
+      Does clustering make sense for a torus dataset? What would be a more
+      appropriate analysis approach for this type of geometric structure?
+    expected_geometry: periodic_manifold
+    ground_truth_methods:
+      - manifold
+      - topology
+      - dimensionality_reduction
+      - umap
+      - phate
+      - not_appropriate
+    failure_indicators:
+      - cluster
+      - kmeans
+      - leiden
+      - louvain
+
+  # Embryoid Body - Differentiation trajectory
+  embryoid_body_dr:
+    id: embryoid_body_dr
+    text: |
+      I have single-cell RNA-seq data from embryoid bodies - 3D stem cell
+      aggregates undergoing spontaneous differentiation. The dataset contains
+      ~8000 cells sampled over a 14-day differentiation time course.
+
+      I want to visualize the differentiation process and understand how
+      cells progress from pluripotent to differentiated states. What
+      dimensionality reduction method would you recommend for this biological
+      context, and what downstream analyses should I consider?
+    expected_geometry: differentiation_trajectory
+    ground_truth_methods:
+      - umap
+      - phate
+      - diffusion_map
+      - trajectory
+      - pseudotime
+      - monocle
+      - slingshot
+      - paga
+      - velocity
+    failure_indicators:
+      - clustering_only
+      - kmeans_only
+
+  embryoid_body_clustering:
+    id: embryoid_body_clustering
+    text: |
+      I have single-cell RNA-seq data from differentiating embryoid bodies.
+      Cells were collected over 14 days as stem cells differentiated into
+      various cell types. I'm wondering whether I should use clustering
+      (like Leiden) or trajectory analysis (like Monocle or Slingshot).
+
+      What analysis approach is most appropriate for this differentiation
+      time-course data? Can I use both clustering and trajectory methods,
+      or should I choose one?
+    expected_geometry: differentiation_trajectory
+    ground_truth_methods:
+      - trajectory
+      - pseudotime
+      - monocle
+      - slingshot
+      - paga
+      - diffusion
+      - velocity
+      - both
+      - complement
+    failure_indicators:
+      - clustering_only
+      - ignore_trajectory
+      - kmeans_only
+
+# Evaluation settings
+evaluation:
+  compute_jaccard: true
+  compute_ground_truth_match: true
+
+output_dir: outputs/reasoning_baseline/${name}_${now:%Y-%m-%d_%H-%M-%S}

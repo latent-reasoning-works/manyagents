@@ -1,0 +1,77 @@
+# SwissRoll dataset - Continuous manifold scenario
+# Ground truth: Manifold-preserving methods (UMAP, PHATE, diffusion_map)
+# Clustering is NOT appropriate (continuous structure)
+
+scenario_name: swissroll
+domain: synthetic_manifold
+
+geometry:
+  type: continuous_manifold
+  expected_structure: >
+    The Swiss Roll is a 2D manifold embedded in 3D space. Points are arranged
+    along a spiral that unfolds into a flat rectangle. The intrinsic dimensionality
+    is 2 despite the 3D embedding. Structure is continuous with no discrete clusters.
+
+ground_truth:
+  appropriate_methods:
+    - umap
+    - phate
+    - diffusion_map
+    - isomap
+    - lle
+    - tsne
+    - mds
+  inappropriate_methods:
+    - leiden
+    - louvain
+    - kmeans
+    - hdbscan
+    - spectral_clustering
+  failure_indicators:
+    - clustering
+    - cluster_analysis
+    - discrete_groups
+
+prompts:
+  dr_recommendation:
+    id: swissroll_dr
+    text: |
+      I have a dataset called SwissRoll with 1000 3-dimensional data points.
+      The data forms a continuous spiral pattern in 3D space - imagine a
+      2D sheet that has been rolled up like a Swiss roll pastry.
+
+      I want to visualize this data in 2D while preserving the underlying
+      manifold structure. What dimensionality reduction method would you
+      recommend and why?
+    expected_geometry: continuous_manifold
+    ground_truth_methods:
+      - umap
+      - phate
+      - diffusion_map
+      - isomap
+      - tsne
+    failure_indicators:
+      - clustering
+      - kmeans
+      - leiden
+
+  clustering_appropriateness:
+    id: swissroll_clustering
+    text: |
+      I have a SwissRoll dataset - 1000 points forming a continuous spiral
+      manifold in 3D space. A colleague suggested I should run clustering
+      (like k-means or Leiden) to identify groups in the data.
+
+      Is clustering appropriate for this type of data structure? Why or why not?
+      What would you recommend instead?
+    expected_geometry: continuous_manifold
+    ground_truth_methods:
+      - manifold_learning
+      - dimensionality_reduction
+      - umap
+      - phate
+    failure_indicators:
+      - yes_cluster
+      - kmeans
+      - leiden
+      - louvain

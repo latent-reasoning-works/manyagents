@@ -1,0 +1,138 @@
+# @package _global_
+# LLM Reasoning Sweep: models × scenarios (2 prompts each)
+# Jobs: 3 models × 4 scenarios = 12
+name: llm_reasoning_sweep
+
+model: llama-3.1-8b
+scenario: manifold
+
+defaults:
+  - /agent@agents.local_llm: local_llm
+  - _self_
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      model: llama-3.1-8b,llama-3.1-70b,olmo-7b
+      scenario: manifold,trajectory,clustering,periodic
+  sweep:
+    dir: outputs/${name}/sweeps/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${model}_${scenario}
+
+wandb:
+  enabled: true
+  project: manyagents_llm_baseline
+  group: reasoning_sweep_${now:%Y%m%d}
+  tags: [reasoning, sweep, "${model}", "${scenario}"]
+  name: ${model}_${scenario}
+
+agents:
+  local_llm:
+    agent:
+      config:
+        model: ${model}
+
+active_agents: [local_llm]
+
+system_prompt: |
+  You are a computational scientist expert in dimensionality reduction, manifold
+  learning, clustering, and trajectory analysis. Recommend methods based on:
+  1. Data geometry (manifolds, clusters, trajectories, periodic)
+  2. Continuous vs discrete structure
+  3. Domain context
+  Provide specific recommendations with justifications.
+
+# Prompt pairs per scenario: one open-ended, one evaluating a wrong approach
+prompts:
+  # === Manifold ===
+  manifold_dr:
+    id: manifold_dr
+    text: |
+      I have data on a smooth, continuous low-dimensional manifold in high-D space.
+      No distinct clusters, just continuous variation like a curved surface.
+      What DR methods best preserve this manifold structure?
+    expected_geometry: continuous_manifold
+    ground_truth_methods: [umap, phate, diffusion_map, isomap, lle, tsne]
+    failure_indicators: [clustering, kmeans, leiden]
+    scenario_filter: manifold
+
+  manifold_clustering:
+    id: manifold_clustering
+    text: |
+      For data on a smooth continuous manifold, my supervisor suggested k-means.
+      Is this appropriate? What would you recommend instead?
+    expected_geometry: continuous_manifold
+    ground_truth_methods: [manifold, dimensionality_reduction, not_appropriate]
+    failure_indicators: [kmeans, cluster]
+    scenario_filter: manifold
+
+  # === Trajectory ===
+  trajectory_dr:
+    id: trajectory_dr
+    text: |
+      Single-cell time-series: cells differentiate into branching lineages,
+      forming a tree-like structure in gene expression space.
+      What methods visualize and analyze this trajectory structure?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [monocle, slingshot, paga, pseudotime, trajectory, diffusion_map, phate]
+    failure_indicators: [clustering_only]
+    scenario_filter: trajectory
+
+  trajectory_analysis:
+    id: trajectory_analysis
+    text: |
+      For branching differentiation data, should I use Leiden clustering
+      or trajectory inference (Monocle/Slingshot)?
+    expected_geometry: branching_trajectory
+    ground_truth_methods: [trajectory, monocle, slingshot, pseudotime, paga]
+    failure_indicators: [clustering_only, kmeans_only]
+    scenario_filter: trajectory
+
+  # === Clustering ===
+  clustering_dr:
+    id: clustering_dr
+    text: |
+      Single-cell data with distinct, well-separated populations (immune cell types).
+      Discrete with clear boundaries. What approach identifies these populations?
+    expected_geometry: discrete_clusters
+    ground_truth_methods: [leiden, louvain, kmeans, clustering, spectral]
+    failure_indicators: [trajectory_only, pseudotime_only]
+    scenario_filter: clustering
+
+  clustering_method:
+    id: clustering_method
+    text: |
+      For well-separated clusters (different cell types), is trajectory analysis
+      with Monocle appropriate? What methods should I use?
+    expected_geometry: discrete_clusters
+    ground_truth_methods: [leiden, louvain, clustering, kmeans]
+    failure_indicators: [trajectory, monocle, pseudotime]
+    scenario_filter: clustering
+
+  # === Periodic ===
+  periodic_dr:
+    id: periodic_dr
+    text: |
+      Data with cyclic structure - cell cycle progressing through G1→S→G2→M→G1.
+      Forms a closed loop, not linear. What handles periodic structure?
+    expected_geometry: periodic_cycle
+    ground_truth_methods: [circular, periodic, topology, diffusion_map, phate, umap]
+    failure_indicators: [linear_trajectory, clustering]
+    scenario_filter: periodic
+
+  periodic_analysis:
+    id: periodic_analysis
+    text: |
+      For cell cycle data (closed circular trajectory), is standard pseudotime
+      (assumes start/end) appropriate? What alternatives?
+    expected_geometry: periodic_cycle
+    ground_truth_methods: [circular, periodic, cyclum, tricycle, topology]
+    failure_indicators: [linear_pseudotime]
+    scenario_filter: periodic
+
+evaluation:
+  compute_jaccard: true
+  compute_ground_truth_match: true
+
+output_dir: outputs/${name}/${model}/${scenario}

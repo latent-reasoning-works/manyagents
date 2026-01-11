@@ -575,6 +575,75 @@ class ManyLatentsAdapter(AgentAdapter):
                 f"Must be str or dict, got: {spec}"
             )
 
+    def _find_sweep_params(self, params: Dict[str, Any]) -> tuple:
+        """Find parameters with list values that need to be swept."""
+        excluded_keys = {'_target_', '_partial_'}
+        sweep_keys = []
+        sweep_vals = []
+
+        for key, value in params.items():
+            if key not in excluded_keys and isinstance(value, (list, tuple)):
+                sweep_keys.append(key)
+                sweep_vals.append(list(value))
+
+        return sweep_keys, sweep_vals
+
+    def _coerce_param_value(self, value: Any) -> Any:
+        """Coerce parameter value to native Python type for naming."""
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return value
+
+    def _generate_metric_variants(
+        self,
+        name: str,
+        base_params: Dict[str, Any]
+    ) -> List[tuple]:
+        """
+        Generate metric variants by expanding list-valued parameters.
+
+        For parameters with list values (e.g., n_neighbors=[15,25,50]),
+        creates a Cartesian product of all combinations, each with a
+        unique suffixed name (e.g., trustworthiness__n_neighbors_15).
+        """
+        sweep_keys, sweep_vals = self._find_sweep_params(base_params)
+
+        if not sweep_keys:
+            return [(name, base_params)]
+
+        from itertools import product
+
+        variants = []
+        for combo in product(*sweep_vals):
+            variant_params = dict(base_params)
+            suffix_parts = []
+
+            for key, val in zip(sweep_keys, combo):
+                val = self._coerce_param_value(val)
+                variant_params[key] = val
+                suffix_parts.append(f"{key}_{val}")
+
+            variant_name = f"{name}__{'_'.join(suffix_parts)}"
+            variants.append((variant_name, variant_params))
+
+        log.info(
+            f"Expanded '{name}' into {len(variants)} variants "
+            f"(sweep keys: {sweep_keys})"
+        )
+
+        return variants
+
+    def _instantiate_metric(
+        self,
+        metric_class: type,
+        metric_info: Dict[str, Any],
+        params: Dict[str, Any]
+    ) -> Any:
+        """Instantiate a metric as partial or full instance."""
+        if metric_info.get('partial', True):
+            return partial(metric_class, **params)
+        return metric_class(**params)
+
     def setup_metrics(
         self,
         metric_names: List[Union[str, Dict]],
@@ -626,37 +695,34 @@ class ManyLatentsAdapter(AgentAdapter):
             metric_class = self._metric_registry.get_metric_class(name)
 
             # Merge parameters (defaults < global < spec-specific)
-            final_params = {
+            base_params = {
                 **metric_info['defaults'],
                 **global_overrides,
                 **spec_params
             }
 
-            log.debug(
-                f"Creating partial metric '{name}' "
-                f"(class: {metric_info['class']}, group: {metric_info['group']}) "
-                f"with params: {final_params}"
-            )
+            # Generate variants for list-valued params (flatten_and_unroll pattern)
+            variants = self._generate_metric_variants(name, base_params)
 
-            # Create partial function with config parameters pre-bound
-            # manyLatents metrics are functions with signature:
-            # metric(embeddings, dataset=None, module=None, **config_params)
-            # We pre-bind the config_params to create a cached partial
-            if metric_info.get('partial', True):
-                metric_obj = partial(metric_class, **final_params)
-            else:
-                # For non-partial metrics, instantiate normally
-                metric_obj = metric_class(**final_params)
+            # Create and cache each variant
+            for variant_name, final_params in variants:
+                log.debug(
+                    f"Creating metric '{variant_name}' "
+                    f"(class: {metric_info['class']}, group: {metric_info['group']})"
+                )
 
-            # Cache the partial metric
-            self._metric_cache[name] = {
-                'object': metric_obj,
-                'group': metric_info['group'],
-                'class': metric_info['class'],
-                'params': final_params
-            }
+                metric_obj = self._instantiate_metric(
+                    metric_class, metric_info, final_params
+                )
 
-            log.debug(f"Cached partial metric '{name}' successfully")
+                self._metric_cache[variant_name] = {
+                    'object': metric_obj,
+                    'group': metric_info['group'],
+                    'class': metric_info['class'],
+                    'params': final_params
+                }
+
+                log.debug(f"Cached metric '{variant_name}' successfully")
 
         self._cached_mode = True
         log.info(
