@@ -36,26 +36,30 @@ class MetricRegistry:
         >>> metric = metric_class(n_neighbors=30)
     """
 
-    def __init__(self, registry_path: Optional[Path] = None):
+    def __init__(self, registry_path: Optional[Path] = None, auto_regenerate: bool = True):
         """
         Initialize metric registry.
 
         Args:
             registry_path: Path to metric_registry.json.
                           If None, uses default location in package data.
-
-        Raises:
-            FileNotFoundError: If registry file doesn't exist.
-                              Run generation first: `python -m manyagents.adapters._generate_metric_registry`
+            auto_regenerate: If True, automatically regenerate registry if missing
+                            or if manylatents version has changed. Default True.
         """
         if registry_path is None:
-            # Default to package data directory
             registry_path = Path(__file__).parent / 'data' / 'metric_registry.json'
+
+        # Auto-regenerate if enabled (handles missing file and version mismatch)
+        if auto_regenerate:
+            try:
+                from ._generate_metric_registry import generate_metric_registry
+                generate_metric_registry(registry_path, force=False)
+            except Exception as e:
+                logger.warning(f"Auto-regeneration failed: {e}. Using existing registry if available.")
 
         if not registry_path.exists():
             raise FileNotFoundError(
                 f"Metric registry not found at {registry_path}. "
-                f"The registry should be auto-generated during package installation. "
                 f"To generate manually, run: "
                 f"python -m manyagents.adapters._generate_metric_registry"
             )
