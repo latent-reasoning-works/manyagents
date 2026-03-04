@@ -20,6 +20,44 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Module-level model cache
+# ---------------------------------------------------------------------------
+
+_model_cache: dict[str, tuple] = {}
+
+
+def get_model(model: str, dtype=None, device_map: str = "auto"):
+    """Cached model loading. Resolves name/HF ID, loads once per process.
+
+    Args:
+        model: Short name, HF Hub ID, or filesystem path.
+        dtype: torch dtype (default: bfloat16).
+        device_map: Device placement strategy.
+
+    Returns:
+        (network, tokenizer, hf_module) — same as load_model().
+    """
+    model_path = resolve_model_path(model)
+    if model_path not in _model_cache:
+        log.info(f"Cache miss for '{model}' -> loading from {model_path}")
+        _model_cache[model_path] = load_model(model_path, dtype=dtype, device_map=device_map)
+    else:
+        log.debug(f"Cache hit for '{model}' ({model_path})")
+    return _model_cache[model_path]
+
+
+def clear_model_cache():
+    """Free GPU memory by clearing the model cache."""
+    _model_cache.clear()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Model resolution
 # ---------------------------------------------------------------------------
 
@@ -457,3 +495,72 @@ def build_reasoning_trace(
         ),
         duration_ms=gen_metadata.get("generation_time_ms"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Full extraction pipeline
+# ---------------------------------------------------------------------------
+
+
+def extract_trace(
+    model: "nn.Module",
+    tokenizer,
+    prompt: str,
+    task: "TaskInfo",
+    model_name: str,
+    model_path: str,
+    *,
+    system_prompt: str | None = None,
+    max_new_tokens: int = 512,
+    temperature: float = 0.7,
+    layers: list[int] | None = None,
+    step_delimiter: str = "\n",
+) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
+    """Full trace extraction pipeline: prompt -> generate -> split -> pool -> trace.
+
+    Composes build_prompt, generate_with_hidden_states, split_into_steps,
+    pool_hidden_states_per_step, and build_reasoning_trace into a single call.
+
+    Returns:
+        (trace, hidden_states) where hidden_states has keys:
+            "pooled_steps": ndarray (n_steps, n_layers, d_model) float16
+            "token_level": ndarray (n_tokens, n_layers, d_model) float16
+    """
+    formatted = build_prompt(tokenizer, prompt, system_prompt)
+
+    gen = generate_with_hidden_states(
+        model, tokenizer, formatted,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        layers=layers,
+    )
+
+    step_defs = split_into_steps(gen["text"], tokenizer, step_delimiter)
+    if not step_defs:
+        step_defs = [{
+            "text": gen["text"],
+            "token_start": 0,
+            "token_end": gen["n_new_tokens"],
+        }]
+
+    pooled = pool_hidden_states_per_step(gen["token_hidden_states"], step_defs)
+
+    trace = build_reasoning_trace(
+        text=gen["text"],
+        gen_metadata=gen,
+        model_name=model_name,
+        model_path=model_path,
+        task=task,
+        step_defs=step_defs,
+        generation_config={
+            "max_new_tokens": max_new_tokens,
+            "temperature": temperature,
+        },
+    )
+
+    hidden_states = {
+        "pooled_steps": pooled.astype(np.float16),
+        "token_level": gen["token_hidden_states"].astype(np.float16),
+    }
+
+    return trace, hidden_states
