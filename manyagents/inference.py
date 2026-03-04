@@ -389,3 +389,71 @@ def pool_hidden_states_per_step(
         pooled.append(token_hidden_states[start:end].mean(axis=0))
 
     return np.stack(pooled)
+
+
+# ---------------------------------------------------------------------------
+# Trace building
+# ---------------------------------------------------------------------------
+
+
+def build_reasoning_trace(
+    text: str,
+    gen_metadata: dict,
+    model_name: str,
+    model_path: str,
+    task: "TaskInfo",
+    step_defs: list[dict],
+    generation_config: dict,
+) -> "ReasoningTrace":
+    """Build a ReasoningTrace from generation output + step definitions.
+
+    Single source of truth for local-model trace construction.
+
+    Args:
+        text: Full generated response text.
+        gen_metadata: Dict from generate_with_hidden_states() with keys
+            input_length, n_new_tokens, generation_time_ms, layers_captured.
+        model_name: Short model name or HF Hub ID.
+        model_path: Resolved filesystem path or HF Hub ID.
+        task: TaskInfo for this trace.
+        step_defs: List of dicts from split_into_steps(), each with
+            text, token_start, token_end.
+        generation_config: Dict of generation params (temperature, etc.)
+            stored in ModelInfo for reproducibility.
+
+    Returns:
+        A ReasoningTrace with properly typed steps.
+    """
+    from manyagents.schemas.reasoning import (
+        ModelBackend, ModelInfo, ReasoningStep, ReasoningTrace, StepKind,
+    )
+
+    steps = []
+    for i, sd in enumerate(step_defs):
+        kind = StepKind.OUTPUT if i == len(step_defs) - 1 else StepKind.THINKING
+        steps.append(ReasoningStep(
+            index=i,
+            text=sd["text"],
+            kind=kind,
+            token_count=sd["token_end"] - sd["token_start"],
+            has_hidden_states=True,
+            layers_captured=gen_metadata.get("layers_captured", []),
+        ))
+
+    return ReasoningTrace(
+        model=ModelInfo(
+            name=model_name,
+            backend=ModelBackend.LOCAL,
+            path=model_path,
+            generation_config=generation_config,
+        ),
+        task=task,
+        steps=steps,
+        response_text=text,
+        input_tokens=gen_metadata.get("input_length", 0),
+        output_tokens=gen_metadata.get("n_new_tokens", 0),
+        total_tokens=(
+            gen_metadata.get("input_length", 0) + gen_metadata.get("n_new_tokens", 0)
+        ),
+        duration_ms=gen_metadata.get("generation_time_ms"),
+    )
