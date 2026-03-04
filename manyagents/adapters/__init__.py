@@ -8,7 +8,7 @@ from .base import AgentAdapter
 from .mock_adapter import MockAdapter
 from .claude_adapter import ClaudeAdapter
 from .openai_adapter import OpenAIAdapter
-from .local_llm_adapter import LocalLLMAdapter
+from .hf_adapter import HFAdapter
 from .cellforge_adapter import CellForgeAdapter
 from .kosmos_adapter import KosmosAdapter
 from .placeholder_adapter import PlaceholderAdapter
@@ -18,7 +18,8 @@ ADAPTER_REGISTRY = {
     "mock": MockAdapter,
     "claude": ClaudeAdapter,
     "openai": OpenAIAdapter,
-    "local_llm": LocalLLMAdapter,
+    "hf": HFAdapter,
+    "local_llm": HFAdapter,  # backward compat alias
     "cellforge": CellForgeAdapter,
     "kosmos": KosmosAdapter,
 }
@@ -36,8 +37,9 @@ try:
 except ImportError:
     BiomniAdapter = None  # biomni package not installed
 
-# Backwards compatibility alias
+# Backwards compatibility aliases
 BioDiscoveryAgentAdapter = PlaceholderAdapter
+LocalLLMAdapter = HFAdapter
 
 __all__ = [
     "AgentAdapter",
@@ -45,6 +47,7 @@ __all__ = [
     "MockAdapter",
     "ClaudeAdapter",
     "OpenAIAdapter",
+    "HFAdapter",
     "LocalLLMAdapter",
     "CellForgeAdapter",
     "KosmosAdapter",
