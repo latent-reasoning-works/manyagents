@@ -35,20 +35,24 @@ DEFAULT_MODEL_PATHS: dict[str, str] = {
 
 
 def resolve_model_path(model_name: str) -> str:
-    """Resolve a short model name to a filesystem path.
+    """Resolve a short model name to a filesystem path or HF Hub ID.
 
-    Raises ``ValueError`` if *model_name* is neither a known alias nor an
-    existing path.
+    Returns the corresponding local path for known aliases, the name
+    itself if it looks like a HF Hub ID (contains ``/``), or an existing
+    filesystem path.  Raises ``ValueError`` otherwise.
     """
     from pathlib import Path
 
     if model_name in DEFAULT_MODEL_PATHS:
         return DEFAULT_MODEL_PATHS[model_name]
+    if "/" in model_name:
+        return model_name  # HF Hub ID (e.g. "Qwen/Qwen3-4B")
     if Path(model_name).exists():
         return model_name
     raise ValueError(
         f"Unknown model '{model_name}'. "
-        f"Available: {list(DEFAULT_MODEL_PATHS.keys())} or provide a full path."
+        f"Available: {list(DEFAULT_MODEL_PATHS.keys())}, "
+        "a HF Hub ID (org/model), or a full path."
     )
 
 
