@@ -1,9 +1,12 @@
 # @package _global_
-# Local LLM agent configuration - 70B variant for higher quality
+# Backward compatibility alias — use agent=hf with model override instead
+
+defaults:
+  - hf
 
 agent:
   name: local_llm_70b
-  adapter: local_llm
+  adapter: hf
   config:
     model: llama-3.3-70b
     temperature: 0.1
