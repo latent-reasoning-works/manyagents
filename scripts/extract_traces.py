@@ -22,16 +22,14 @@ import argparse
 import json
 import logging
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Add parent to path so we can import manyagents
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from manyagents import inference
 from manyagents.schemas.reasoning import (
     ModelBackend,
     ModelInfo,
@@ -43,14 +41,6 @@ from manyagents.schemas.reasoning import (
 )
 
 log = logging.getLogger(__name__)
-
-# Cluster model paths
-MODEL_PATHS = {
-    "olmo-7b": "/network/weights/olmo/OLMo-7B-Twin-2T",
-    "olmo-1b": "/network/weights/olmo/OLMo-1B-Twin-2T",
-    "olmoe-1b-7b": "/network/weights/olmoe/OLMoE-1B-7B-0924",
-    "llama-3.1-8b": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct",
-}
 
 COT_SYSTEM = "Solve the problem step by step. Show your reasoning clearly, with each step on a new line."
 
@@ -89,199 +79,6 @@ def load_tasks(dataset: str, n_samples: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Model loading and generation with hidden state capture
-# ---------------------------------------------------------------------------
-
-def load_model(model_name: str, dtype: str = "bfloat16"):
-    """Load model and tokenizer from cluster weights."""
-    model_path = MODEL_PATHS.get(model_name, model_name)
-    log.info(f"Loading {model_name} from {model_path}...")
-
-    torch_dtype = getattr(torch, dtype)
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch_dtype,
-        device_map="auto",
-        output_hidden_states=True,
-        trust_remote_code=True,
-    )
-    model.eval()
-
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    log.info(f"Model loaded. Layers: {model.config.num_hidden_layers}, "
-             f"d_model: {model.config.hidden_size}")
-    return model, tokenizer
-
-
-def build_prompt(tokenizer, question: str) -> str:
-    """Build a CoT prompt using the model's chat template or fallback."""
-    messages = [
-        {"role": "system", "content": COT_SYSTEM},
-        {"role": "user", "content": question},
-    ]
-    if hasattr(tokenizer, "apply_chat_template"):
-        try:
-            return tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-        except Exception:
-            pass
-    # Fallback
-    return f"System: {COT_SYSTEM}\n\nUser: {question}\n\nAssistant:"
-
-
-@torch.no_grad()
-def generate_with_hidden_states(
-    model,
-    tokenizer,
-    prompt: str,
-    max_new_tokens: int = 512,
-    temperature: float = 0.7,
-    layers: list[int] | None = None,
-) -> dict:
-    """Generate a response and capture hidden states for each new token.
-
-    Returns dict with:
-        response_text: str
-        token_hidden_states: np.ndarray of shape (n_new_tokens, n_layers, d_model)
-            or (n_new_tokens, len(layers), d_model) if layers specified
-        input_length: int
-        generation_time_ms: int
-    """
-    inputs = tokenizer(prompt, return_tensors="pt")
-    input_ids = inputs["input_ids"].to(model.device)
-    input_length = input_ids.shape[1]
-
-    n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
-    d_model = model.config.hidden_size
-
-    if layers is None:
-        layer_indices = list(range(n_layers))
-    else:
-        # Resolve negative indices
-        layer_indices = [l % n_layers for l in layers]
-
-    # Collect hidden states token by token via generate hooks
-    all_hidden_states = []
-
-    start = time.time()
-
-    # Use model.generate with output_hidden_states=True
-    outputs = model.generate(
-        input_ids,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature if temperature > 0 else None,
-        do_sample=temperature > 0,
-        pad_token_id=tokenizer.eos_token_id,
-        output_hidden_states=True,
-        return_dict_in_generate=True,
-    )
-
-    generation_time_ms = int((time.time() - start) * 1000)
-
-    # outputs.hidden_states is a tuple of length n_new_tokens
-    # Each element is a tuple of (n_layers+1) tensors of shape (batch, seq_len, d_model)
-    # For generate, seq_len=1 for each step after the first
-    for step_hidden in outputs.hidden_states:
-        # step_hidden is tuple of (n_layers+1) tensors
-        # Take selected layers, squeeze batch and seq dims
-        step_layers = []
-        for li in layer_indices:
-            h = step_hidden[li]  # (batch, seq_len, d_model)
-            # For the first step, seq_len = input_length; take last token
-            # For subsequent steps, seq_len = 1
-            step_layers.append(h[0, -1, :].cpu().float().numpy())
-        all_hidden_states.append(np.stack(step_layers))  # (n_selected_layers, d_model)
-
-    # Stack: (n_new_tokens, n_selected_layers, d_model)
-    token_hidden_states = np.stack(all_hidden_states)
-
-    # Decode response
-    new_token_ids = outputs.sequences[0, input_length:]
-    response_text = tokenizer.decode(new_token_ids, skip_special_tokens=True).strip()
-
-    return {
-        "response_text": response_text,
-        "token_hidden_states": token_hidden_states,
-        "input_length": input_length,
-        "generation_time_ms": generation_time_ms,
-        "n_new_tokens": len(all_hidden_states),
-        "layers_captured": layer_indices,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Step boundary detection and per-step pooling
-# ---------------------------------------------------------------------------
-
-def split_into_steps(text: str, tokenizer, delimiter: str = "\n") -> list[dict]:
-    """Split response text into reasoning steps.
-
-    Returns list of dicts with:
-        text: str
-        token_start: int (inclusive, relative to response start)
-        token_end: int (exclusive)
-    """
-    lines = text.split(delimiter)
-    steps = []
-    char_pos = 0
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            char_pos += len(line) + len(delimiter)
-            continue
-
-        # Tokenize up to and including this line to find token boundaries
-        prefix = text[:char_pos + len(line)]
-        prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
-
-        if not steps:
-            token_start = 0
-        else:
-            token_start = steps[-1]["token_end"]
-
-        steps.append({
-            "text": stripped,
-            "token_start": token_start,
-            "token_end": len(prefix_tokens),
-        })
-
-        char_pos += len(line) + len(delimiter)
-
-    return steps
-
-
-def pool_hidden_states_per_step(
-    token_hidden_states: np.ndarray,
-    steps: list[dict],
-) -> np.ndarray:
-    """Mean-pool token hidden states within each reasoning step.
-
-    Args:
-        token_hidden_states: (n_tokens, n_layers, d_model)
-        steps: list of dicts with token_start and token_end
-
-    Returns:
-        (n_steps, n_layers, d_model)
-    """
-    n_tokens = token_hidden_states.shape[0]
-    pooled = []
-
-    for step in steps:
-        start = min(step["token_start"], n_tokens - 1)
-        end = min(step["token_end"], n_tokens)
-        if end <= start:
-            end = start + 1  # at least one token
-        pooled.append(token_hidden_states[start:end].mean(axis=0))
-
-    return np.stack(pooled)
-
-
-# ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
 
@@ -297,9 +94,9 @@ def extract_trace(
     step_delimiter: str,
 ) -> tuple[ReasoningTrace, dict[str, np.ndarray] | None]:
     """Run one task through the model and produce a ReasoningTrace + hidden states."""
-    prompt = build_prompt(tokenizer, task["prompt"])
+    prompt = inference.build_prompt(tokenizer, task["prompt"], system_prompt=COT_SYSTEM)
 
-    gen = generate_with_hidden_states(
+    gen = inference.generate_with_hidden_states(
         model, tokenizer, prompt,
         max_new_tokens=max_new_tokens,
         temperature=temperature,
@@ -307,14 +104,14 @@ def extract_trace(
     )
 
     # Split response into reasoning steps
-    step_defs = split_into_steps(gen["response_text"], tokenizer, step_delimiter)
+    step_defs = inference.split_into_steps(gen["text"], tokenizer, step_delimiter)
     if not step_defs:
         # Fallback: treat entire response as one step
-        step_defs = [{"text": gen["response_text"], "token_start": 0,
+        step_defs = [{"text": gen["text"], "token_start": 0,
                        "token_end": gen["n_new_tokens"]}]
 
     # Pool hidden states per step
-    pooled = pool_hidden_states_per_step(gen["token_hidden_states"], step_defs)
+    pooled = inference.pool_hidden_states_per_step(gen["token_hidden_states"], step_defs)
 
     # Build ReasoningSteps
     steps = []
@@ -348,7 +145,7 @@ def extract_trace(
             logic_type=task.get("logic_type"),
         ),
         steps=steps,
-        response_text=gen["response_text"],
+        response_text=gen["text"],
         input_tokens=gen["input_length"],
         output_tokens=gen["n_new_tokens"],
         total_tokens=gen["input_length"] + gen["n_new_tokens"],
@@ -390,8 +187,10 @@ def main():
     log.info(f"Loaded {len(tasks)} tasks")
 
     # Load model
-    model, tokenizer = load_model(args.model, args.dtype)
-    model_path = MODEL_PATHS.get(args.model, args.model)
+    import torch
+    torch_dtype = getattr(torch, args.dtype)
+    model_path = inference.resolve_model_path(args.model)
+    model, tokenizer, _ = inference.load_model(model_path, dtype=torch_dtype)
 
     # Extract traces
     log.info(f"Extracting traces → {args.output_dir}")
