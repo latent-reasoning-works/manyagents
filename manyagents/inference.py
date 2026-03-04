@@ -20,6 +20,44 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Module-level model cache
+# ---------------------------------------------------------------------------
+
+_model_cache: dict[str, tuple] = {}
+
+
+def get_model(model: str, dtype=None, device_map: str = "auto"):
+    """Cached model loading. Resolves name/HF ID, loads once per process.
+
+    Args:
+        model: Short name, HF Hub ID, or filesystem path.
+        dtype: torch dtype (default: bfloat16).
+        device_map: Device placement strategy.
+
+    Returns:
+        (network, tokenizer, hf_module) — same as load_model().
+    """
+    model_path = resolve_model_path(model)
+    if model_path not in _model_cache:
+        log.info(f"Cache miss for '{model}' -> loading from {model_path}")
+        _model_cache[model_path] = load_model(model_path, dtype=dtype, device_map=device_map)
+    else:
+        log.debug(f"Cache hit for '{model}' ({model_path})")
+    return _model_cache[model_path]
+
+
+def clear_model_cache():
+    """Free GPU memory by clearing the model cache."""
+    _model_cache.clear()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Model resolution
 # ---------------------------------------------------------------------------
 
@@ -389,3 +427,140 @@ def pool_hidden_states_per_step(
         pooled.append(token_hidden_states[start:end].mean(axis=0))
 
     return np.stack(pooled)
+
+
+# ---------------------------------------------------------------------------
+# Trace building
+# ---------------------------------------------------------------------------
+
+
+def build_reasoning_trace(
+    text: str,
+    gen_metadata: dict,
+    model_name: str,
+    model_path: str,
+    task: "TaskInfo",
+    step_defs: list[dict],
+    generation_config: dict,
+) -> "ReasoningTrace":
+    """Build a ReasoningTrace from generation output + step definitions.
+
+    Single source of truth for local-model trace construction.
+
+    Args:
+        text: Full generated response text.
+        gen_metadata: Dict from generate_with_hidden_states() with keys
+            input_length, n_new_tokens, generation_time_ms, layers_captured.
+        model_name: Short model name or HF Hub ID.
+        model_path: Resolved filesystem path or HF Hub ID.
+        task: TaskInfo for this trace.
+        step_defs: List of dicts from split_into_steps(), each with
+            text, token_start, token_end.
+        generation_config: Dict of generation params (temperature, etc.)
+            stored in ModelInfo for reproducibility.
+
+    Returns:
+        A ReasoningTrace with properly typed steps.
+    """
+    from manyagents.schemas.reasoning import (
+        ModelBackend, ModelInfo, ReasoningStep, ReasoningTrace, StepKind,
+    )
+
+    steps = []
+    for i, sd in enumerate(step_defs):
+        kind = StepKind.OUTPUT if i == len(step_defs) - 1 else StepKind.THINKING
+        steps.append(ReasoningStep(
+            index=i,
+            text=sd["text"],
+            kind=kind,
+            token_count=sd["token_end"] - sd["token_start"],
+            has_hidden_states=True,
+            layers_captured=gen_metadata.get("layers_captured", []),
+        ))
+
+    return ReasoningTrace(
+        model=ModelInfo(
+            name=model_name,
+            backend=ModelBackend.LOCAL,
+            path=model_path,
+            generation_config=generation_config,
+        ),
+        task=task,
+        steps=steps,
+        response_text=text,
+        input_tokens=gen_metadata.get("input_length", 0),
+        output_tokens=gen_metadata.get("n_new_tokens", 0),
+        total_tokens=(
+            gen_metadata.get("input_length", 0) + gen_metadata.get("n_new_tokens", 0)
+        ),
+        duration_ms=gen_metadata.get("generation_time_ms"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Full extraction pipeline
+# ---------------------------------------------------------------------------
+
+
+def extract_trace(
+    model: "nn.Module",
+    tokenizer,
+    prompt: str,
+    task: "TaskInfo",
+    model_name: str,
+    model_path: str,
+    *,
+    system_prompt: str | None = None,
+    max_new_tokens: int = 512,
+    temperature: float = 0.7,
+    layers: list[int] | None = None,
+    step_delimiter: str = "\n",
+) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
+    """Full trace extraction pipeline: prompt -> generate -> split -> pool -> trace.
+
+    Composes build_prompt, generate_with_hidden_states, split_into_steps,
+    pool_hidden_states_per_step, and build_reasoning_trace into a single call.
+
+    Returns:
+        (trace, hidden_states) where hidden_states has keys:
+            "pooled_steps": ndarray (n_steps, n_layers, d_model) float16
+            "token_level": ndarray (n_tokens, n_layers, d_model) float16
+    """
+    formatted = build_prompt(tokenizer, prompt, system_prompt)
+
+    gen = generate_with_hidden_states(
+        model, tokenizer, formatted,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        layers=layers,
+    )
+
+    step_defs = split_into_steps(gen["text"], tokenizer, step_delimiter)
+    if not step_defs:
+        step_defs = [{
+            "text": gen["text"],
+            "token_start": 0,
+            "token_end": gen["n_new_tokens"],
+        }]
+
+    pooled = pool_hidden_states_per_step(gen["token_hidden_states"], step_defs)
+
+    trace = build_reasoning_trace(
+        text=gen["text"],
+        gen_metadata=gen,
+        model_name=model_name,
+        model_path=model_path,
+        task=task,
+        step_defs=step_defs,
+        generation_config={
+            "max_new_tokens": max_new_tokens,
+            "temperature": temperature,
+        },
+    )
+
+    hidden_states = {
+        "pooled_steps": pooled.astype(np.float16),
+        "token_level": gen["token_hidden_states"].astype(np.float16),
+    }
+
+    return trace, hidden_states

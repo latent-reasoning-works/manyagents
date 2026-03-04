@@ -1,18 +1,10 @@
 # @package _global_
-# Local LLM agent configuration (HuggingFace models)
+# Backward compatibility alias — use agent=hf instead
 
+defaults:
+  - hf
+
+# Override name/adapter for backward compat with experiment logs
 agent:
   name: local_llm
-  adapter: local_llm
-  config:
-    model: llama-3.1-8b  # Options: llama-3.3-70b, llama-3.1-70b, llama-3.1-8b, olmo-7b, olmoe-1b-7b
-    temperature: 0.1
-    max_new_tokens: 2000
-  # Model paths (auto-resolved from /network/weights/)
-  available_models:
-    llama-3.3-70b: /network/weights/llama.var/llama_3.3/Llama-3.3-70B-Instruct
-    llama-3.1-70b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-70B-Instruct
-    llama-3.1-8b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct
-    llama-3.1-405b-fp8: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-405B-Instruct-FP8
-    olmo-7b: /network/weights/olmo/OLMo-7B-Twin-2T
-    olmoe-1b-7b: /network/weights/olmoe/OLMoE-1B-7B-0924
+  adapter: hf
