@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 from .metrics.extractor import extract_methods, check_ground_truth_match
@@ -120,6 +121,93 @@ def _print_summary(metrics: Dict[str, Dict[str, float]]) -> None:
 
 
 # ============================================================================
+# TRACE EXTRACTION
+# ============================================================================
+
+def _load_dataset_tasks(dataset: str, n_samples: int) -> list:
+    """Load task samples from a dataset."""
+    if dataset == "gsm8k":
+        from datasets import load_dataset as hf_load
+        ds = hf_load("openai/gsm8k", "main", split="train")
+        tasks = []
+        for i, row in enumerate(ds):
+            if i >= n_samples:
+                break
+            answer = row["answer"].split("####")[-1].strip()
+            tasks.append({
+                "task_id": f"gsm8k_train_{i}",
+                "prompt": row["question"],
+                "expected_answer": answer,
+                "domain": "math",
+                "logic_type": "arithmetic",
+            })
+        return tasks
+    raise ValueError(f"Unknown dataset: {dataset}")
+
+
+async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
+    """Run trace extraction experiment — generates ReasoningTraces with hidden states.
+
+    This is the Hydra-driven equivalent of the old scripts/extract_traces.py.
+    """
+    import numpy as np
+    from manyagents.adapters import ADAPTER_REGISTRY
+    from manyagents.schemas.reasoning import TraceStore, ReasoningTrace
+
+    trace_cfg = cfg.trace_extraction
+    agent_config = cfg.agent if hasattr(cfg, "agent") else _get_agent_config(cfg, cfg.active_agents[0])
+
+    dataset_name = trace_cfg.get("dataset", "gsm8k")
+    n_samples = trace_cfg.get("n_samples", 10)
+    system_prompt = trace_cfg.get("system_prompt", "Solve the problem step by step.")
+
+    tasks = _load_dataset_tasks(dataset_name, n_samples)
+    log.info(f"Loaded {len(tasks)} tasks from {dataset_name}")
+
+    adapter_name = agent_config.adapter if hasattr(agent_config, "adapter") else "hf"
+    adapter = ADAPTER_REGISTRY[adapter_name]()
+
+    output_dir = Path(cfg.output_dir)
+    store_dir = output_dir / "traces"
+
+    with TraceStore(store_dir) as store:
+        for i, task in enumerate(tasks):
+            log.info(f"[{i + 1}/{len(tasks)}] {task['task_id']}")
+            task_config = dict(agent_config.config) if hasattr(agent_config, "config") else {}
+            task_config["prompt"] = task["prompt"]
+            task_config["system_prompt"] = system_prompt
+            task_config["dataset"] = dataset_name
+            task_config["task_id"] = task["task_id"]
+            task_config["expected_answer"] = task.get("expected_answer")
+            task_config["domain"] = task.get("domain")
+            task_config["logic_type"] = task.get("logic_type")
+
+            try:
+                result = await adapter.run(task_config, {})
+                if result["success"] and "trace" in result.get("output_files", {}):
+                    trace_path = result["output_files"]["trace"]
+                    trace = ReasoningTrace.from_json(Path(trace_path).read_text())
+
+                    hs = None
+                    if "hidden_states" in result.get("output_files", {}):
+                        hs_path = result["output_files"]["hidden_states"]
+                        hs = dict(np.load(hs_path, allow_pickle=False))
+
+                    store.append(trace, hidden_states=hs)
+                    log.info(f"  -> {len(trace.steps)} steps, {trace.output_tokens} tokens")
+                else:
+                    log.warning(f"  SKIPPED: {result.get('summary', 'unknown error')}")
+            except Exception as e:
+                log.error(f"  FAILED: {e}", exc_info=True)
+
+    store_r = TraceStore(store_dir, mode="r")
+    summary = store_r.summary()
+    log.info(f"Trace extraction complete: {json.dumps(summary, indent=2)}")
+
+    return {"experiment_id": f"trace_{dataset_name}", "summary": summary, "output_dir": str(store_dir)}
+
+
+# ============================================================================
 # EXPERIMENT RUNNER
 # ============================================================================
 
@@ -172,6 +260,10 @@ def _get_agent_config(cfg: DictConfig, agent_name: str) -> DictConfig:
 
 async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
     """Run the full experiment based on Hydra config."""
+    # Dispatch to trace extraction if configured
+    if hasattr(cfg, "trace_extraction") and getattr(cfg.trace_extraction, "enabled", False):
+        return await _run_trace_extraction(cfg)
+
     experiment_id = f"{cfg.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     logger = _create_logger(cfg, experiment_id)
 
