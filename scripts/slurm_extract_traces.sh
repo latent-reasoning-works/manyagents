@@ -31,9 +31,9 @@ echo "Started: $(date)"
 export HF_HOME=/network/weights/.cache/huggingface
 export TRANSFORMERS_CACHE=/network/weights/.cache/huggingface
 
-# Activate env (adjust to your setup)
-cd "$SLURM_TMPDIR" || cd /home/mila/$USER/manyagents
-source .venv/bin/activate 2>/dev/null || true
+# Working directory
+cd $SCRATCH/lrw/agents
+source .venv/bin/activate
 
 # Determine run mode
 if [[ "${1:-}" == "--test" ]]; then
