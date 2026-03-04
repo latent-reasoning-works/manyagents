@@ -103,7 +103,13 @@ class ClaudeAdapter(AgentAdapter):
             )
 
         response_time = time.time() - start_time
-        content = response.content[0].text
+        # Extract text from the first text block (thinking blocks may precede it)
+        content = ""
+        for block in response.content:
+            btype = block.type if hasattr(block, "type") else block.get("type")
+            if btype == "text":
+                content = block.text if hasattr(block, "text") else block["text"]
+                break
         usage = response.usage
         total_tokens = usage.input_tokens + usage.output_tokens
 
@@ -117,6 +123,27 @@ class ClaudeAdapter(AgentAdapter):
                 parsed or {"raw": content, "parse_error": error},
                 "parsed_output.json"
             )
+
+        # Optionally build a ReasoningTrace
+        if task_config.get("build_trace", False):
+            from manyagents.schemas.reasoning import TaskInfo, trace_from_anthropic
+
+            task = TaskInfo(
+                dataset=task_config.get("dataset", "unknown"),
+                task_id=task_config.get("task_id", f"claude_{int(time.time())}"),
+                prompt=task_config[PROMPT],
+                expected_answer=task_config.get("expected_answer"),
+                domain=task_config.get("domain"),
+                logic_type=task_config.get("logic_type"),
+            )
+            trace = trace_from_anthropic(
+                response, task,
+                model_name=api_params["model"],
+                duration_ms=int(response_time * 1000),
+            )
+            trace_path = self.output_dir / "trace.json"
+            trace_path.write_text(trace.to_json())
+            output_files["trace"] = trace_path
 
         return self.success_response(
             summary=f"Claude completed. Response: {truncate_string(content, 100)}",
