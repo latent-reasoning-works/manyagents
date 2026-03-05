@@ -45,8 +45,6 @@ site/
 .DS_Store
 Thumbs.db
 
-# AI context files
-CLAUDE.md
 
 # Auto-generated metric registry
 manyagents/adapters/data/metric_registry.json
