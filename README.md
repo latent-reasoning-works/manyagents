@@ -171,7 +171,7 @@ manyagents/
 
 | Library | Role | Responsibility |
 |---------|------|----------------|
-| **[manyLatents](https://github.com/latent-reasoning-works/manylatents)** | Body | DR algorithms (12), geometric metrics (90+) |
+| **[manyLatents](https://github.com/latent-reasoning-works/manylatents)** | Body | DR algorithms (12), geometric metrics (35+) |
 | **[manyAgents](https://github.com/latent-reasoning-works/manyagents)** | Brain | Orchestration, adapters, reasoning traces |
 | **[Geomancy](https://github.com/latent-reasoning-works/geomancy)** | Trainer | RL environments, reward, policy training |
 | **[Shop](https://github.com/latent-reasoning-works/shop)** | Infra | SLURM launchers, cluster health, log sync |
