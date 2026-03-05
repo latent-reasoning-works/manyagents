@@ -7,6 +7,7 @@ Plain functions — no classes, no async, no locking.  Both
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -368,14 +369,14 @@ def generate_with_hidden_states(
 # ---------------------------------------------------------------------------
 
 
-def split_into_steps(
+def segment_by_delimiter(
     text: str,
     tokenizer,
     delimiter: str = "\n",
 ) -> list[dict]:
-    """Split response text into reasoning steps with token boundaries.
+    """Split response text into reasoning steps by delimiter with token boundaries.
 
-    Returns a list of ``{"text": str, "token_start": int, "token_end": int}``.
+    Returns a list of ``{"text", "token_start", "token_end", "kind"}``.
     """
     lines = text.split(delimiter)
     steps: list[dict] = []
@@ -396,11 +397,319 @@ def split_into_steps(
             "text": stripped,
             "token_start": token_start,
             "token_end": len(prefix_tokens),
+            "kind": "thinking",
         })
 
         char_pos += len(line) + len(delimiter)
 
+    # Last step is output
+    if steps:
+        steps[-1]["kind"] = "output"
+
     return steps
+
+
+# Backward-compatible alias
+split_into_steps = segment_by_delimiter
+
+
+# ---------------------------------------------------------------------------
+# Tag-aware segmentation (<think>...</think>)
+# ---------------------------------------------------------------------------
+
+_THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+_SENTENCE_RE = re.compile(r"(?<=\.)\s+(?=[A-Z])")
+
+
+def segment_by_tags(
+    text: str,
+    tokenizer,
+) -> list[dict]:
+    """Parse ``<think>...</think>`` tags and sentence-split within.
+
+    Within the think block, splits on sentence boundaries (period followed
+    by whitespace and capital letter) and newlines.  Text after ``</think>``
+    becomes a single OUTPUT step.
+
+    Falls back to a single OUTPUT step when no tags are present.
+
+    Returns a list of ``{"text", "token_start", "token_end", "kind"}``.
+    """
+    match = _THINK_RE.search(text)
+    if not match:
+        # No tags — single output step
+        all_tokens = tokenizer.encode(text, add_special_tokens=False)
+        return [{"text": text.strip(), "token_start": 0, "token_end": len(all_tokens), "kind": "output"}]
+
+    think_content = match.group(1)
+    after_think = text[match.end():].strip()
+
+    # Split think content into sentences
+    # First split on newlines, then on sentence boundaries within each line
+    raw_parts: list[str] = []
+    for line in think_content.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        sentences = _SENTENCE_RE.split(line)
+        raw_parts.extend(s.strip() for s in sentences if s.strip())
+
+    steps: list[dict] = []
+    consumed_text = text[:match.start()]  # text before <think>
+
+    for part in raw_parts:
+        consumed_text += part
+        # Find this text in the original to compute token boundary
+        prefix_tokens = tokenizer.encode(
+            text[:text.find(part) + len(part)],
+            add_special_tokens=False,
+        )
+        token_start = steps[-1]["token_end"] if steps else 0
+        steps.append({
+            "text": part,
+            "token_start": token_start,
+            "token_end": len(prefix_tokens),
+            "kind": "thinking",
+        })
+
+    # Output step: text after </think>
+    if after_think:
+        all_tokens = tokenizer.encode(text, add_special_tokens=False)
+        token_start = steps[-1]["token_end"] if steps else 0
+        steps.append({
+            "text": after_think,
+            "token_start": token_start,
+            "token_end": len(all_tokens),
+            "kind": "output",
+        })
+
+    if not steps:
+        all_tokens = tokenizer.encode(text, add_special_tokens=False)
+        steps = [{"text": text.strip(), "token_start": 0, "token_end": len(all_tokens), "kind": "output"}]
+
+    return steps
+
+
+# ---------------------------------------------------------------------------
+# Velocity-based segmentation (cosine distance peaks)
+# ---------------------------------------------------------------------------
+
+
+def segment_by_velocity(
+    text: str,
+    tokenizer,
+    token_hidden_states: np.ndarray,
+    *,
+    layer: int = -1,
+    min_segment_tokens: int = 5,
+    prominence_factor: float = 1.0,
+) -> list[dict]:
+    """Segment by cosine-distance peaks between consecutive token hidden states.
+
+    Args:
+        text: Full generated text.
+        tokenizer: HF tokenizer for decoding segments.
+        token_hidden_states: ``(n_tokens, n_layers, d_model)``.
+        layer: Which layer to compute velocity on (default: last).
+        min_segment_tokens: Minimum tokens per segment.
+        prominence_factor: Multiplied by median velocity to get peak prominence.
+
+    Returns a list of ``{"text", "token_start", "token_end", "kind"}``.
+    """
+    from scipy.signal import find_peaks
+
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    n_tokens = min(len(token_ids), token_hidden_states.shape[0])
+
+    if n_tokens < 2:
+        return [{"text": text.strip(), "token_start": 0, "token_end": n_tokens, "kind": "output"}]
+
+    # Extract the chosen layer's hidden states
+    hs = token_hidden_states[:n_tokens, layer, :]  # (n_tokens, d_model)
+
+    # Cosine distance between consecutive tokens
+    from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+
+    cos_dist = compute_cosine_velocity(hs)  # (n_tokens - 1,)
+
+    median_vel = float(np.median(cos_dist))
+    prominence = median_vel * prominence_factor
+
+    peaks, _ = find_peaks(cos_dist, prominence=prominence, distance=min_segment_tokens)
+
+    # Build segment boundaries: peaks mark the END of a segment
+    # (the transition happens between token[peak] and token[peak+1])
+    boundaries = sorted(set([0] + [int(p) + 1 for p in peaks] + [n_tokens]))
+
+    steps: list[dict] = []
+    for i in range(len(boundaries) - 1):
+        start = boundaries[i]
+        end = boundaries[i + 1]
+        if end - start < 1:
+            continue
+        seg_text = tokenizer.decode(token_ids[start:end], skip_special_tokens=True).strip()
+        if not seg_text:
+            continue
+        steps.append({
+            "text": seg_text,
+            "token_start": start,
+            "token_end": end,
+            "kind": "thinking",
+        })
+
+    # Last step is output
+    if steps:
+        steps[-1]["kind"] = "output"
+
+    if not steps:
+        return [{"text": text.strip(), "token_start": 0, "token_end": n_tokens, "kind": "output"}]
+
+    return steps
+
+
+# ---------------------------------------------------------------------------
+# Hybrid segmentation (tags + velocity within thinking)
+# ---------------------------------------------------------------------------
+
+
+def segment_hybrid(
+    text: str,
+    tokenizer,
+    token_hidden_states: np.ndarray,
+    *,
+    layer: int = -1,
+    min_segment_tokens: int = 5,
+    prominence_factor: float = 1.0,
+) -> list[dict]:
+    """Combine tag-aware structure with velocity-based sub-segmentation.
+
+    Parses ``<think>...</think>`` for coarse THINKING vs OUTPUT regions.
+    Within the THINKING region, applies velocity-based sub-segmentation.
+    OUTPUT is kept as a single step.
+
+    Falls back to pure velocity when no tags are present.
+    """
+    match = _THINK_RE.search(text)
+    if not match:
+        return segment_by_velocity(
+            text, tokenizer, token_hidden_states,
+            layer=layer, min_segment_tokens=min_segment_tokens,
+            prominence_factor=prominence_factor,
+        )
+
+    think_content = match.group(1).strip()
+    after_think = text[match.end():].strip()
+
+    # Tokenize full text to get token ranges
+    full_tokens = tokenizer.encode(text, add_special_tokens=False)
+    think_start_text = text[:match.start()] + "<think>"
+    think_start_tokens = len(tokenizer.encode(think_start_text, add_special_tokens=False))
+    think_end_text = text[:match.end() - len("</think>")]
+    think_end_tokens = len(tokenizer.encode(think_end_text, add_special_tokens=False))
+
+    n_think_tokens = think_end_tokens - think_start_tokens
+    if n_think_tokens < 2:
+        # Not enough tokens in thinking region, fall back to tags
+        return segment_by_tags(text, tokenizer)
+
+    # Sub-segment the thinking region with velocity
+    think_hs = token_hidden_states[think_start_tokens:think_end_tokens]
+    think_token_ids = full_tokens[think_start_tokens:think_end_tokens]
+
+    from scipy.signal import find_peaks
+
+    hs = think_hs[:, layer, :]  # (n_think_tokens, d_model)
+    from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+
+    cos_dist = compute_cosine_velocity(hs)
+
+    median_vel = float(np.median(cos_dist))
+    prominence = median_vel * prominence_factor
+
+    peaks, _ = find_peaks(cos_dist, prominence=prominence, distance=min_segment_tokens)
+    boundaries = sorted(set([0] + [int(p) + 1 for p in peaks] + [len(think_token_ids)]))
+
+    steps: list[dict] = []
+    for i in range(len(boundaries) - 1):
+        start = boundaries[i]
+        end = boundaries[i + 1]
+        if end - start < 1:
+            continue
+        seg_text = tokenizer.decode(think_token_ids[start:end], skip_special_tokens=True).strip()
+        if not seg_text:
+            continue
+        steps.append({
+            "text": seg_text,
+            "token_start": think_start_tokens + start,
+            "token_end": think_start_tokens + end,
+            "kind": "thinking",
+        })
+
+    # Output step: text after </think>
+    if after_think:
+        steps.append({
+            "text": after_think,
+            "token_start": think_end_tokens,
+            "token_end": len(full_tokens),
+            "kind": "output",
+        })
+
+    if not steps:
+        all_tokens = tokenizer.encode(text, add_special_tokens=False)
+        return [{"text": text.strip(), "token_start": 0, "token_end": len(all_tokens), "kind": "output"}]
+
+    return steps
+
+
+# ---------------------------------------------------------------------------
+# Segmentation dispatcher
+# ---------------------------------------------------------------------------
+
+
+def segment(
+    text: str,
+    tokenizer,
+    segmentation: str = "delimiter",
+    *,
+    delimiter: str = "\n",
+    token_hidden_states: np.ndarray | None = None,
+    layer: int = -1,
+    min_segment_tokens: int = 5,
+    prominence_factor: float = 1.0,
+) -> list[dict]:
+    """Dispatch to the appropriate segmentation function.
+
+    Args:
+        segmentation: One of ``"delimiter"``, ``"tags"``, ``"velocity"``, ``"hybrid"``.
+        token_hidden_states: Required for ``"velocity"`` and ``"hybrid"``.
+
+    Returns a list of ``{"text", "token_start", "token_end", "kind"}``.
+    """
+    if segmentation == "delimiter":
+        return segment_by_delimiter(text, tokenizer, delimiter)
+    elif segmentation == "tags":
+        return segment_by_tags(text, tokenizer)
+    elif segmentation == "velocity":
+        if token_hidden_states is None:
+            raise ValueError("segment_by_velocity requires token_hidden_states")
+        return segment_by_velocity(
+            text, tokenizer, token_hidden_states,
+            layer=layer, min_segment_tokens=min_segment_tokens,
+            prominence_factor=prominence_factor,
+        )
+    elif segmentation == "hybrid":
+        if token_hidden_states is None:
+            raise ValueError("segment_hybrid requires token_hidden_states")
+        return segment_hybrid(
+            text, tokenizer, token_hidden_states,
+            layer=layer, min_segment_tokens=min_segment_tokens,
+            prominence_factor=prominence_factor,
+        )
+    else:
+        raise ValueError(
+            f"Unknown segmentation '{segmentation}'. "
+            "Choose from: delimiter, tags, velocity, hybrid"
+        )
 
 
 def pool_hidden_states_per_step(
@@ -468,7 +777,10 @@ def build_reasoning_trace(
 
     steps = []
     for i, sd in enumerate(step_defs):
-        kind = StepKind.OUTPUT if i == len(step_defs) - 1 else StepKind.THINKING
+        if "kind" in sd:
+            kind = StepKind(sd["kind"])
+        else:
+            kind = StepKind.OUTPUT if i == len(step_defs) - 1 else StepKind.THINKING
         steps.append(ReasoningStep(
             index=i,
             text=sd["text"],
@@ -515,11 +827,16 @@ def extract_trace(
     temperature: float = 0.7,
     layers: list[int] | None = None,
     step_delimiter: str = "\n",
+    segmentation: str = "delimiter",
 ) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
-    """Full trace extraction pipeline: prompt -> generate -> split -> pool -> trace.
+    """Full trace extraction pipeline: prompt -> generate -> segment -> pool -> trace.
 
-    Composes build_prompt, generate_with_hidden_states, split_into_steps,
+    Composes build_prompt, generate_with_hidden_states, segment(),
     pool_hidden_states_per_step, and build_reasoning_trace into a single call.
+
+    Args:
+        segmentation: Segmentation strategy — ``"delimiter"``, ``"tags"``,
+            ``"velocity"``, or ``"hybrid"``.
 
     Returns:
         (trace, hidden_states) where hidden_states has keys:
@@ -535,12 +852,19 @@ def extract_trace(
         layers=layers,
     )
 
-    step_defs = split_into_steps(gen["text"], tokenizer, step_delimiter)
+    step_defs = segment(
+        gen["text"],
+        tokenizer,
+        segmentation,
+        delimiter=step_delimiter,
+        token_hidden_states=gen["token_hidden_states"],
+    )
     if not step_defs:
         step_defs = [{
             "text": gen["text"],
             "token_start": 0,
             "token_end": gen["n_new_tokens"],
+            "kind": "output",
         }]
 
     pooled = pool_hidden_states_per_step(gen["token_hidden_states"], step_defs)
