@@ -1,9 +1,18 @@
 # tests/test_inference_trace.py
-"""Tests for inference.py trace building functions."""
+"""Tests for inference.py trace building and segmentation functions."""
 
 import numpy as np
+import pytest
 
-from manyagents.inference import build_reasoning_trace
+from manyagents.inference import (
+    build_reasoning_trace,
+    segment_by_delimiter,
+    segment_by_tags,
+    segment_by_velocity,
+    segment_hybrid,
+    segment,
+    split_into_steps,
+)
 from manyagents.schemas.reasoning import (
     ModelBackend, StepKind, TaskInfo, ReasoningTrace,
 )
@@ -157,6 +166,250 @@ def test_extract_trace_fallback_single_step():
 
     assert len(trace.steps) >= 1
     assert hs["pooled_steps"].shape[0] == len(trace.steps)
+
+
+# ---------------------------------------------------------------------------
+# Segmentation tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeTokenizer:
+    """Minimal tokenizer mock for segmentation tests."""
+
+    def encode(self, text, add_special_tokens=False):
+        # ~1 token per 4 chars, deterministic
+        return list(range(len(text) // 4 + 1))
+
+    def decode(self, token_ids, skip_special_tokens=True):
+        return f"decoded_{len(token_ids)}_tokens"
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        return "<formatted>"
+
+
+def test_segment_by_delimiter_basic():
+    """segment_by_delimiter splits on newlines and adds kind field."""
+    tok = _FakeTokenizer()
+    steps = segment_by_delimiter("Step one\nStep two\nThe answer", tok)
+
+    assert len(steps) == 3
+    assert steps[0]["kind"] == "thinking"
+    assert steps[1]["kind"] == "thinking"
+    assert steps[2]["kind"] == "output"  # last step
+    assert steps[0]["text"] == "Step one"
+    assert all("token_start" in s and "token_end" in s for s in steps)
+
+
+def test_segment_by_delimiter_single_line():
+    """Single line gets kind=output."""
+    tok = _FakeTokenizer()
+    steps = segment_by_delimiter("Just the answer", tok)
+
+    assert len(steps) == 1
+    assert steps[0]["kind"] == "output"
+
+
+def test_split_into_steps_is_alias():
+    """split_into_steps is a backward-compatible alias for segment_by_delimiter."""
+    assert split_into_steps is segment_by_delimiter
+
+
+def test_segment_by_tags_with_think_block():
+    """segment_by_tags parses <think>...</think> and marks output correctly."""
+    tok = _FakeTokenizer()
+    text = "<think>First I add 2+2. Then I get 4.</think>The answer is 4."
+    steps = segment_by_tags(text, tok)
+
+    # Should have thinking steps + output
+    thinking_steps = [s for s in steps if s["kind"] == "thinking"]
+    output_steps = [s for s in steps if s["kind"] == "output"]
+    assert len(thinking_steps) >= 1
+    assert len(output_steps) == 1
+    assert output_steps[0]["text"] == "The answer is 4."
+
+
+def test_segment_by_tags_no_tags_fallback():
+    """segment_by_tags falls back to single output when no tags present."""
+    tok = _FakeTokenizer()
+    steps = segment_by_tags("No tags here at all", tok)
+
+    assert len(steps) == 1
+    assert steps[0]["kind"] == "output"
+
+
+def test_segment_by_tags_multiline_think():
+    """segment_by_tags splits think content on newlines and sentence boundaries."""
+    tok = _FakeTokenizer()
+    text = "<think>Line one.\nLine two.\nLine three.</think>Answer."
+    steps = segment_by_tags(text, tok)
+
+    thinking = [s for s in steps if s["kind"] == "thinking"]
+    assert len(thinking) == 3
+    assert steps[-1]["kind"] == "output"
+
+
+def test_segment_by_tags_empty_after_think():
+    """segment_by_tags handles case with no text after </think>."""
+    tok = _FakeTokenizer()
+    text = "<think>Just thinking here.</think>"
+    steps = segment_by_tags(text, tok)
+
+    assert len(steps) >= 1
+    assert all(s["kind"] == "thinking" for s in steps)
+
+
+try:
+    import scipy  # noqa: F401
+    _has_scipy = True
+except ImportError:
+    _has_scipy = False
+
+_scipy_required = pytest.mark.skipif(not _has_scipy, reason="scipy required")
+
+
+@_scipy_required
+def test_segment_by_velocity_basic():
+    """segment_by_velocity segments based on cosine distance peaks."""
+    tok = _FakeTokenizer()
+    n_tokens = 20
+    n_layers = 2
+    d_model = 32
+    rng = np.random.RandomState(42)
+    hs = rng.randn(n_tokens, n_layers, d_model).astype(np.float32)
+    # Inject a sharp transition at token 10
+    hs[10:, -1, :] = hs[10:, -1, :] + 5.0
+
+    text = "x" * (n_tokens * 4)  # enough chars for ~n_tokens tokens
+    steps = segment_by_velocity(text, tok, hs, min_segment_tokens=3, prominence_factor=0.5)
+
+    assert len(steps) >= 2
+    assert steps[-1]["kind"] == "output"
+    assert all(s["kind"] == "thinking" for s in steps[:-1])
+
+
+@_scipy_required
+def test_segment_by_velocity_short_text():
+    """segment_by_velocity handles very short input gracefully."""
+    tok = _FakeTokenizer()
+    hs = np.random.randn(1, 2, 32).astype(np.float32)
+    steps = segment_by_velocity("hi", tok, hs)
+
+    assert len(steps) == 1
+    assert steps[0]["kind"] == "output"
+
+
+@_scipy_required
+def test_segment_hybrid_with_tags():
+    """segment_hybrid uses tags for structure + velocity within thinking."""
+    tok = _FakeTokenizer()
+    think_text = "x" * 80  # long enough thinking block
+    text = f"<think>{think_text}</think>Final answer."
+
+    full_tokens = tok.encode(text, add_special_tokens=False)
+    n_tokens = len(full_tokens)
+    hs = np.random.randn(n_tokens, 2, 32).astype(np.float32)
+
+    steps = segment_hybrid(text, tok, hs, min_segment_tokens=2, prominence_factor=0.5)
+
+    assert len(steps) >= 1
+    output_steps = [s for s in steps if s["kind"] == "output"]
+    assert len(output_steps) >= 1
+
+
+@_scipy_required
+def test_segment_hybrid_no_tags_falls_back_to_velocity():
+    """segment_hybrid falls back to velocity when no tags present."""
+    tok = _FakeTokenizer()
+    n_tokens = 20
+    hs = np.random.randn(n_tokens, 2, 32).astype(np.float32)
+    text = "x" * (n_tokens * 4)
+
+    steps = segment_hybrid(text, tok, hs, min_segment_tokens=3)
+    assert len(steps) >= 1
+
+
+def test_segment_dispatcher_delimiter():
+    """segment() routes 'delimiter' to segment_by_delimiter."""
+    tok = _FakeTokenizer()
+    steps = segment("Line one\nLine two", tok, "delimiter")
+    assert len(steps) == 2
+
+
+def test_segment_dispatcher_tags():
+    """segment() routes 'tags' to segment_by_tags."""
+    tok = _FakeTokenizer()
+    steps = segment("<think>Reasoning.</think>Answer.", tok, "tags")
+    output = [s for s in steps if s["kind"] == "output"]
+    assert len(output) >= 1
+
+
+def test_segment_dispatcher_velocity_requires_hidden_states():
+    """segment() raises ValueError for velocity without hidden states."""
+    tok = _FakeTokenizer()
+    with pytest.raises(ValueError, match="token_hidden_states"):
+        segment("text", tok, "velocity")
+
+
+def test_segment_dispatcher_hybrid_requires_hidden_states():
+    """segment() raises ValueError for hybrid without hidden states."""
+    tok = _FakeTokenizer()
+    with pytest.raises(ValueError, match="token_hidden_states"):
+        segment("text", tok, "hybrid")
+
+
+def test_segment_dispatcher_unknown_raises():
+    """segment() raises ValueError for unknown strategy."""
+    tok = _FakeTokenizer()
+    with pytest.raises(ValueError, match="Unknown segmentation"):
+        segment("text", tok, "nonexistent")
+
+
+def test_build_reasoning_trace_uses_kind_from_step_defs():
+    """build_reasoning_trace uses kind from step_defs when present."""
+    task = TaskInfo("gsm8k", "train_0", "Q?")
+    step_defs = [
+        {"text": "Think", "token_start": 0, "token_end": 3, "kind": "thinking"},
+        {"text": "More think", "token_start": 3, "token_end": 6, "kind": "thinking"},
+        {"text": "Answer", "token_start": 6, "token_end": 10, "kind": "output"},
+    ]
+    gen_metadata = {"input_length": 5, "n_new_tokens": 10, "generation_time_ms": 100, "layers_captured": []}
+
+    trace = build_reasoning_trace(
+        text="Think\nMore think\nAnswer",
+        gen_metadata=gen_metadata,
+        model_name="test",
+        model_path="/test",
+        task=task,
+        step_defs=step_defs,
+        generation_config={},
+    )
+
+    assert trace.steps[0].kind == StepKind.THINKING
+    assert trace.steps[1].kind == StepKind.THINKING
+    assert trace.steps[2].kind == StepKind.OUTPUT
+
+
+def test_build_reasoning_trace_falls_back_without_kind():
+    """build_reasoning_trace falls back to heuristic when kind absent."""
+    task = TaskInfo("gsm8k", "train_0", "Q?")
+    step_defs = [
+        {"text": "Step 1", "token_start": 0, "token_end": 3},
+        {"text": "Step 2", "token_start": 3, "token_end": 6},
+    ]
+    gen_metadata = {"input_length": 5, "n_new_tokens": 6, "generation_time_ms": 100, "layers_captured": []}
+
+    trace = build_reasoning_trace(
+        text="Step 1\nStep 2",
+        gen_metadata=gen_metadata,
+        model_name="test",
+        model_path="/test",
+        task=task,
+        step_defs=step_defs,
+        generation_config={},
+    )
+
+    assert trace.steps[0].kind == StepKind.THINKING
+    assert trace.steps[1].kind == StepKind.OUTPUT
 
 
 # ---------------------------------------------------------------------------

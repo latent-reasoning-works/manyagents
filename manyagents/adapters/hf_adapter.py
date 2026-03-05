@@ -57,6 +57,7 @@ class HFAdapter(AgentAdapter):
         build_trace = task_config.get("build_trace", False)
         layers = task_config.get("layers")
         step_delimiter = task_config.get("step_delimiter", "\n")
+        segmentation = task_config.get("segmentation", "delimiter")
 
         try:
             model_path = inference.resolve_model_path(model_name)
@@ -88,6 +89,7 @@ class HFAdapter(AgentAdapter):
                         temperature=temperature,
                         layers=layers,
                         step_delimiter=step_delimiter,
+                        segmentation=segmentation,
                     )
                     return {
                         "text": trace.response_text,
