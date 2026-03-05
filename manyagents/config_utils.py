@@ -61,9 +61,10 @@ def load_manylatents_experiment(
             "manylatents not found. Install with: uv add manylatents"
         )
 
-    # Clear Hydra state if needed
+    # Note: GlobalHydra clearing is now handled inside manylatents.api.run().
+    # For direct Hydra compose calls (not going through api.run), we still
+    # need to clear here since initialize_config_dir requires clean state.
     if GlobalHydra.instance().is_initialized():
-        logger.debug("Clearing GlobalHydra before loading manylatents experiment")
         GlobalHydra.instance().clear()
 
     # Load experiment config

@@ -93,22 +93,15 @@ class ManyLatentsAdapter(AgentAdapter):
 
             # Import manylatents API
             from manylatents.api import run
-            from hydra.core.global_hydra import GlobalHydra
 
             # Extract logging configuration from Geomancer
             logging_config = logging_config or {}
             logging_mode = logging_config.get('logging_mode', 'immediate')
 
             log.info(f"ManyLatents adapter executing with task config: {task_config}")
-            log.info(f"🔍 Task config has 'metrics' key: {'metrics' in task_config}")
-            log.info(f"🎯 Logging mode: {logging_mode}")
+            log.info(f"Logging mode: {logging_mode}")
 
-            # Clear Hydra's global state before calling manylatents API
-            # This is necessary because manyAgents already initialized Hydra
-            # and manylatents.api.run() also initializes it
-            if GlobalHydra.instance().is_initialized():
-                log.debug("Clearing GlobalHydra instance before calling manylatents API")
-                GlobalHydra.instance().clear()
+            # Note: GlobalHydra clearing is now handled inside manylatents.api.run()
 
             # Build configuration based on whether experiment name is provided
             if 'experiment' in task_config:
