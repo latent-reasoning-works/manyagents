@@ -888,3 +888,101 @@ def extract_trace(
     }
 
     return trace, hidden_states
+
+
+# ---------------------------------------------------------------------------
+# Cumulative encoding (forward-pass only, no generation)
+# ---------------------------------------------------------------------------
+
+
+def encode_cumulative_trajectory(
+    model,
+    tokenizer,
+    prompt: str,
+    steps: list[str],
+    *,
+    layer: int = -1,
+    device: str | None = None,
+) -> np.ndarray:
+    """Encode pre-written reasoning steps cumulatively (forward-pass only).
+
+    Implements Algorithm 1 from Zhou et al. (2026) "The Geometry of Reasoning."
+    For each step t, concatenates prompt + steps[0:t+1], runs a forward pass,
+    extracts hidden states from ``layer`` for the tokens belonging to steps[t]
+    ONLY, and mean-pools them to produce y_t.
+
+    This is fundamentally different from extract_trace(), which generates text
+    and then segments. Here the text is pre-written; we only encode.
+
+    Args:
+        model: HuggingFace model (must support output_hidden_states=True).
+        tokenizer: Corresponding tokenizer.
+        prompt: Task preamble text.
+        steps: List of reasoning step texts, in order.
+        layer: Which layer to extract from (-1 = last layer).
+        device: Device override. If None, inferred from model parameters.
+
+    Returns:
+        np.ndarray of shape (n_steps, d_model) — trajectory Y = [y_1, ..., y_T].
+
+    Raises:
+        ValueError: If steps is empty.
+    """
+    import torch
+
+    if not steps:
+        raise ValueError("steps must be a non-empty list of reasoning step texts")
+
+    if device is None:
+        device = str(next(model.parameters()).device)
+
+    sep = " "
+    embeddings = []
+
+    with torch.no_grad():
+        for t in range(len(steps)):
+            # Build cumulative text
+            if t == 0:
+                prefix_text = prompt
+            else:
+                prefix_text = prompt + sep + sep.join(steps[:t])
+            full_text = prompt + sep + sep.join(steps[: t + 1])
+
+            # Tokenize prefix and full to find step t's token boundaries
+            prefix_ids = tokenizer.encode(prefix_text, add_special_tokens=False)
+            full_ids = tokenizer.encode(full_text, add_special_tokens=False)
+
+            step_start = len(prefix_ids)
+            step_end = len(full_ids)
+
+            # BPE boundary check
+            if step_end <= step_start:
+                log.warning(
+                    f"Step {t}: token boundary collapsed (start={step_start}, "
+                    f"end={step_end}). Using last token of full sequence."
+                )
+                step_start = step_end - 1
+
+            assert step_end > step_start, (
+                f"Empty token range for step {t}: start={step_start}, end={step_end}"
+            )
+
+            # Forward pass on full cumulative text
+            inputs = tokenizer(full_text, return_tensors="pt", add_special_tokens=False)
+            inputs = inputs.to(device)
+            outputs = model(
+                input_ids=inputs.input_ids,
+                attention_mask=inputs.attention_mask,
+                output_hidden_states=True,
+            )
+
+            # Extract hidden states from requested layer
+            hidden_states = outputs.hidden_states[layer]  # (1, seq_len, d_model)
+
+            # Slice to step t's tokens and mean-pool
+            step_hidden = hidden_states[0, step_start:step_end, :]  # (n_step_tokens, d_model)
+            pooled = step_hidden.mean(dim=0)  # (d_model,)
+
+            embeddings.append(pooled.cpu().float().numpy())
+
+    return np.stack(embeddings, axis=0)  # (n_steps, d_model)
