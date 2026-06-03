@@ -1,0 +1,33 @@
+# @package _global_
+# vLLM model agent configuration
+#
+# vLLM generates; an HF forward pass recovers hidden states (set
+# capture_hidden_states/build_trace). Every sampling + engine knob below is
+# threaded into vllm.SamplingParams / vllm.LLM (see VLLMAdapter).
+
+agent:
+  name: vllm
+  adapter: vllm
+  config:
+    model: Qwen/Qwen3-0.6B
+    # --- sampling ---
+    temperature: 0.7
+    top_p: 1.0
+    top_k: -1
+    max_new_tokens: 512
+    seed: 0
+    # sampling_params: {min_p: 0.0, repetition_penalty: 1.0}   # free-form passthrough
+    # --- engine (fixed at LLM construction; see get_vllm_engine) ---
+    dtype: bfloat16
+    gpu_memory_utilization: 0.90
+    tensor_parallel_size: 1
+    max_num_batched_tokens: 8192
+    max_num_seqs: 256
+    max_model_len: 4096
+    enforce_eager: false
+    # engine_kwargs: {quantization: null, kv_cache_dtype: auto}  # free-form passthrough
+  available_models:
+    qwen3-0.6b: Qwen/Qwen3-0.6B
+    qwen3-4b: Qwen/Qwen3-4B
+    qwen3-8b: Qwen/Qwen3-8B
+    llama-3.1-8b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct

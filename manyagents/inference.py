@@ -48,14 +48,106 @@ def get_model(model: str, dtype=None, device_map: str = "auto"):
 
 
 def clear_model_cache():
-    """Free GPU memory by clearing the model cache."""
+    """Free GPU memory by clearing the model cache (HF + vLLM engines)."""
     _model_cache.clear()
+    _vllm_cache.clear()
     try:
         import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except ImportError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# vLLM engine cache
+# ---------------------------------------------------------------------------
+#
+# A vLLM ``LLM`` engine is expensive to build and fixes its engine args at
+# construction (``max_num_batched_tokens``, ``gpu_memory_utilization``, ...).
+# We cache one engine per (resolved model path, engine-arg) combination so the
+# same generation settings reuse a warm engine, mirroring ``_model_cache``.
+
+_vllm_cache: dict[tuple, object] = {}
+
+
+def _hashable(v):
+    """Make engine-arg values hashable for the cache key (dicts/lists -> tuples)."""
+    if isinstance(v, dict):
+        return tuple(sorted((k, _hashable(x)) for k, x in v.items()))
+    if isinstance(v, (list, tuple)):
+        return tuple(_hashable(x) for x in v)
+    return v
+
+
+def get_vllm_engine(
+    model: str,
+    *,
+    dtype: str = "bfloat16",
+    max_num_batched_tokens: "int | None" = None,
+    max_num_seqs: "int | None" = None,
+    max_model_len: "int | None" = None,
+    gpu_memory_utilization: float = 0.90,
+    tensor_parallel_size: int = 1,
+    enforce_eager: bool = False,
+    trust_remote_code: bool = True,
+    seed: int = 0,
+    **engine_kwargs,
+):
+    """Cached vLLM ``LLM`` engine. Resolves name/HF ID/path, builds once.
+
+    Every engine-level knob is exposed and threaded into ``vllm.LLM``:
+    scheduler capacity (``max_num_batched_tokens``, ``max_num_seqs``), context
+    length (``max_model_len``), memory (``gpu_memory_utilization``), sharding
+    (``tensor_parallel_size``), and CUDA-graph capture (``enforce_eager``).
+    Anything else passes through via ``engine_kwargs`` (e.g. ``quantization``,
+    ``kv_cache_dtype``, ``swap_space``).
+
+    Args:
+        model: Short name, HF Hub ID, or filesystem path (see resolve_model_path).
+        dtype: vLLM weight/activation dtype ("auto", "bfloat16", "float16", ...).
+        max_num_batched_tokens: Scheduler token budget per iteration (None = vLLM default).
+        max_num_seqs: Max concurrent sequences per iteration.
+        max_model_len: Max context length (prompt + generated).
+        gpu_memory_utilization: Fraction of GPU memory for weights + KV cache.
+        tensor_parallel_size: Number of GPUs to shard across.
+        enforce_eager: Disable CUDA-graph capture (lower memory, slower).
+        trust_remote_code: Allow custom modeling code (needed for some HF models).
+        seed: Engine seed for reproducible sampling.
+        **engine_kwargs: Any other ``vllm.LLM`` / ``EngineArgs`` field.
+
+    Returns:
+        A cached ``vllm.LLM`` instance.
+    """
+    model_path = resolve_model_path(model)
+
+    args: dict = dict(
+        model=model_path,
+        dtype=dtype,
+        gpu_memory_utilization=gpu_memory_utilization,
+        tensor_parallel_size=tensor_parallel_size,
+        enforce_eager=enforce_eager,
+        trust_remote_code=trust_remote_code,
+        seed=seed,
+    )
+    # Only pass capacity knobs when set, so vLLM's own defaults apply otherwise.
+    if max_num_batched_tokens is not None:
+        args["max_num_batched_tokens"] = max_num_batched_tokens
+    if max_num_seqs is not None:
+        args["max_num_seqs"] = max_num_seqs
+    if max_model_len is not None:
+        args["max_model_len"] = max_model_len
+    args.update(engine_kwargs)
+
+    key = (model_path, tuple(sorted((k, _hashable(v)) for k, v in args.items())))
+    if key not in _vllm_cache:
+        from vllm import LLM
+
+        log.info(f"vLLM cache miss for '{model}' -> building LLM({model_path})")
+        _vllm_cache[key] = LLM(**args)
+    else:
+        log.debug(f"vLLM cache hit for '{model}' ({model_path})")
+    return _vllm_cache[key]
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +452,189 @@ def generate_with_hidden_states(
         "input_length": input_length,
         "n_new_tokens": len(all_hidden_states),
         "generation_time_ms": generation_time_ms,
+        "layers_captured": layer_indices,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Generation — vLLM (fast generation; hidden states via HF forward pass)
+# ---------------------------------------------------------------------------
+
+
+def build_sampling_params(
+    *,
+    max_new_tokens: int = 512,
+    temperature: float = 0.7,
+    top_p: float = 1.0,
+    top_k: int = -1,
+    seed: "int | None" = None,
+    stop: "list[str] | None" = None,
+    overrides: "dict | None" = None,
+):
+    """Build a ``vllm.SamplingParams`` from explicit knobs + a free-form override dict.
+
+    The common decoding knobs are first-class arguments; ``overrides`` is merged
+    last and passes through to *any* ``SamplingParams`` field (``min_p``,
+    ``repetition_penalty``, ``presence_penalty``, ``frequency_penalty``, ``n``,
+    ``logprobs``, ``stop_token_ids``, ...) and wins on conflict. ``max_new_tokens``
+    maps onto vLLM's ``max_tokens``.
+
+    Returns:
+        A ``vllm.SamplingParams`` instance.
+    """
+    from vllm import SamplingParams
+
+    params: dict = dict(
+        max_tokens=max_new_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+    )
+    if seed is not None:
+        params["seed"] = seed
+    if stop is not None:
+        params["stop"] = stop
+    if overrides:
+        params.update(overrides)
+    return SamplingParams(**params)
+
+
+def vllm_generate(
+    prompts: "str | list[str]",
+    *,
+    engine=None,
+    model: "str | None" = None,
+    sampling_params=None,
+    max_new_tokens: int = 512,
+    temperature: float = 0.7,
+    top_p: float = 1.0,
+    top_k: int = -1,
+    seed: "int | None" = None,
+    stop: "list[str] | None" = None,
+    sampling_overrides: "dict | None" = None,
+    engine_kwargs: "dict | None" = None,
+) -> list[dict]:
+    """Generate with vLLM. Returns token ids alongside text for exact re-encoding.
+
+    Provide either a prebuilt ``engine`` (a ``vllm.LLM``) or a ``model`` name
+    (an engine is fetched/built via ``get_vllm_engine(model, **engine_kwargs)``).
+    Sampling is controlled by ``sampling_params`` (a ``vllm.SamplingParams`` or a
+    plain dict of overrides) or the explicit knobs; see ``build_sampling_params``.
+
+    Every result dict carries ``prompt_token_ids`` and ``completion_token_ids``
+    so a downstream HF forward pass can re-encode the *exact* sequence vLLM saw —
+    no string round-trip, no tokenizer drift (the key to backend="vllm" hidden
+    states matching backend="hf").
+
+    Returns:
+        list of ``{text, prompt_token_ids, completion_token_ids, input_length,
+        n_new_tokens, generation_time_ms, finish_reason}`` — one per prompt.
+    """
+    if engine is None:
+        if model is None:
+            raise ValueError("vllm_generate requires either `engine` or `model`.")
+        engine = get_vllm_engine(model, **(engine_kwargs or {}))
+
+    if sampling_params is None:
+        sampling_params = build_sampling_params(
+            max_new_tokens=max_new_tokens, temperature=temperature,
+            top_p=top_p, top_k=top_k, seed=seed, stop=stop,
+            overrides=sampling_overrides,
+        )
+    elif isinstance(sampling_params, dict):
+        sampling_params = build_sampling_params(
+            max_new_tokens=max_new_tokens, temperature=temperature,
+            top_p=top_p, top_k=top_k, seed=seed, stop=stop,
+            overrides={**sampling_params, **(sampling_overrides or {})},
+        )
+
+    single = isinstance(prompts, str)
+    prompt_list = [prompts] if single else list(prompts)
+
+    start = time.time()
+    request_outputs = engine.generate(prompt_list, sampling_params)
+    generation_time_ms = int((time.time() - start) * 1000)
+
+    results: list[dict] = []
+    for ro in request_outputs:
+        out = ro.outputs[0]
+        prompt_ids = list(ro.prompt_token_ids)
+        completion_ids = list(out.token_ids)
+        results.append({
+            "text": out.text,
+            "prompt_token_ids": prompt_ids,
+            "completion_token_ids": completion_ids,
+            "input_length": len(prompt_ids),
+            "n_new_tokens": len(completion_ids),
+            "generation_time_ms": generation_time_ms,
+            "finish_reason": out.finish_reason,
+        })
+    return results
+
+
+def forward_hidden_states(
+    model: "nn.Module",
+    input_ids: "list[int]",
+    *,
+    input_length: int,
+    layers: "list[int] | None" = None,
+) -> dict:
+    """Teacher-forced forward pass over a fixed sequence; harvest per-token states.
+
+    Used for backend="vllm": vLLM generates, then a single HF forward pass over
+    ``prompt + completion`` token ids recovers hidden states. For a causal model
+    over a fixed sequence, the state at position *t* equals the decode-time state
+    (causal masking), so the completion-aligned slice reproduces what
+    ``generate_with_hidden_states`` would return had HF generated the same tokens.
+
+    Args:
+        model: HF causal LM (provides hidden states).
+        input_ids: Full sequence — ``prompt_token_ids + completion_token_ids``.
+        input_length: Length of the prompt prefix (``len(prompt_token_ids)``).
+        layers: Layer indices to keep (negatives allowed); None = all layers.
+
+    Returns:
+        Same shape contract as ``generate_with_hidden_states`` minus ``text``:
+        ``{token_hidden_states (n_new, n_selected, d_model), input_length,
+        n_new_tokens, generation_time_ms, layers_captured}`` (float32).
+    """
+    import torch
+
+    ids = torch.tensor([list(input_ids)], device=model.device)
+    total = ids.shape[1]
+    n_new = total - input_length
+
+    n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
+    layer_indices = (
+        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
+    )
+
+    start = time.time()
+    with torch.no_grad():
+        outputs = model(ids, output_hidden_states=True, use_cache=False)
+    forward_time_ms = int((time.time() - start) * 1000)
+
+    # Position (input_length - 1 + s) is the state that predicts completion
+    # token s — the same state generate() exposes at decode step s.
+    all_hidden_states = []
+    for pos in range(input_length - 1, total - 1):
+        step_layers = [
+            outputs.hidden_states[li][0, pos, :].cpu().float().numpy()
+            for li in layer_indices
+        ]
+        all_hidden_states.append(np.stack(step_layers))  # (n_selected, d_model)
+
+    if all_hidden_states:
+        token_hidden_states = np.stack(all_hidden_states)
+    else:  # empty completion — keep the shape contract
+        d_model = model.config.hidden_size
+        token_hidden_states = np.empty((0, len(layer_indices), d_model), dtype=np.float32)
+
+    return {
+        "token_hidden_states": token_hidden_states.astype(np.float32),
+        "input_length": int(input_length),
+        "n_new_tokens": int(n_new),
+        "generation_time_ms": forward_time_ms,
         "layers_captured": layer_indices,
     }
 
@@ -751,6 +1026,7 @@ def build_reasoning_trace(
     task: "TaskInfo",
     step_defs: list[dict],
     generation_config: dict,
+    backend: "ModelBackend | None" = None,
 ) -> "ReasoningTrace":
     """Build a ReasoningTrace from generation output + step definitions.
 
@@ -767,6 +1043,7 @@ def build_reasoning_trace(
             text, token_start, token_end.
         generation_config: Dict of generation params (temperature, etc.)
             stored in ModelInfo for reproducibility.
+        backend: Which backend produced the trace (default: ModelBackend.LOCAL).
 
     Returns:
         A ReasoningTrace with properly typed steps.
@@ -774,6 +1051,9 @@ def build_reasoning_trace(
     from manyagents.schemas.reasoning import (
         ModelBackend, ModelInfo, ReasoningStep, ReasoningTrace, StepKind,
     )
+
+    if backend is None:
+        backend = ModelBackend.LOCAL
 
     steps = []
     for i, sd in enumerate(step_defs):
@@ -793,7 +1073,7 @@ def build_reasoning_trace(
     return ReasoningTrace(
         model=ModelInfo(
             name=model_name,
-            backend=ModelBackend.LOCAL,
+            backend=backend,
             path=model_path,
             generation_config=generation_config,
         ),
@@ -822,35 +1102,72 @@ def extract_trace(
     model_name: str,
     model_path: str,
     *,
+    backend: str = "hf",
+    vllm_engine=None,
+    sampling_params=None,
     system_prompt: str | None = None,
     max_new_tokens: int = 512,
     temperature: float = 0.7,
+    top_p: float = 1.0,
+    top_k: int = -1,
     layers: list[int] | None = None,
     step_delimiter: str = "\n",
     segmentation: str = "delimiter",
 ) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
     """Full trace extraction pipeline: prompt -> generate -> segment -> pool -> trace.
 
-    Composes build_prompt, generate_with_hidden_states, segment(),
-    pool_hidden_states_per_step, and build_reasoning_trace into a single call.
+    Composes build_prompt, generation, segment(), pool_hidden_states_per_step,
+    and build_reasoning_trace into a single call.
 
     Args:
-        segmentation: Segmentation strategy — ``"delimiter"``, ``"tags"``,
-            ``"velocity"``, or ``"hybrid"``.
+        backend: ``"hf"`` (HF generates + captures hidden states) or ``"vllm"``
+            (vLLM generates fast; ``model`` runs one HF forward pass over the
+            exact token ids vLLM emitted to recover hidden states). For
+            ``"vllm"`` pass the generation engine as ``vllm_engine`` and the HF
+            model (for hidden states) as ``model``.
+        sampling_params: vLLM ``SamplingParams``/override-dict (vllm backend only).
+        segmentation: ``"delimiter"``, ``"tags"``, ``"velocity"``, or ``"hybrid"``.
 
     Returns:
         (trace, hidden_states) where hidden_states has keys:
             "pooled_steps": ndarray (n_steps, n_layers, d_model) float16
             "token_level": ndarray (n_tokens, n_layers, d_model) float16
     """
-    formatted = build_prompt(tokenizer, prompt, system_prompt)
+    from manyagents.schemas.reasoning import ModelBackend
 
-    gen = generate_with_hidden_states(
-        model, tokenizer, formatted,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-        layers=layers,
-    )
+    formatted = build_prompt(tokenizer, prompt, system_prompt)
+    gen_config: dict = {"max_new_tokens": max_new_tokens, "temperature": temperature}
+
+    if backend == "hf":
+        gen = generate_with_hidden_states(
+            model, tokenizer, formatted,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            layers=layers,
+        )
+        trace_backend = ModelBackend.LOCAL
+    elif backend == "vllm":
+        if vllm_engine is None:
+            raise ValueError("extract_trace(backend='vllm') requires `vllm_engine`.")
+        out = vllm_generate(
+            formatted,
+            engine=vllm_engine,
+            sampling_params=sampling_params,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+        )[0]
+        full_ids = out["prompt_token_ids"] + out["completion_token_ids"]
+        hs = forward_hidden_states(
+            model, full_ids, input_length=out["input_length"], layers=layers,
+        )
+        gen = {**hs, "text": out["text"]}
+        gen["generation_time_ms"] = out["generation_time_ms"] + hs["generation_time_ms"]
+        gen_config.update(top_p=top_p, top_k=top_k)
+        trace_backend = ModelBackend.VLLM
+    else:
+        raise ValueError(f"Unknown backend '{backend}'. Choose 'hf' or 'vllm'.")
 
     step_defs = segment(
         gen["text"],
@@ -876,10 +1193,8 @@ def extract_trace(
         model_path=model_path,
         task=task,
         step_defs=step_defs,
-        generation_config={
-            "max_new_tokens": max_new_tokens,
-            "temperature": temperature,
-        },
+        generation_config=gen_config,
+        backend=trace_backend,
     )
 
     hidden_states = {
