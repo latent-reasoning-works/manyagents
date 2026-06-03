@@ -9,17 +9,21 @@ from .mock_adapter import MockAdapter
 from .claude_adapter import ClaudeAdapter
 from .openai_adapter import OpenAIAdapter
 from .hf_adapter import HFAdapter
+from .vllm_adapter import VLLMAdapter
 from .cellforge_adapter import CellForgeAdapter
 from .kosmos_adapter import KosmosAdapter
 from .placeholder_adapter import PlaceholderAdapter
 
-# Core adapters (always available)
+# Core adapters (always available). The vLLM adapter imports `vllm` lazily at
+# run() time, so registering it here is safe even without vllm installed — a
+# missing dependency surfaces as a clean error_response, mirroring HFAdapter.
 ADAPTER_REGISTRY = {
     "mock": MockAdapter,
     "claude": ClaudeAdapter,
     "openai": OpenAIAdapter,
     "hf": HFAdapter,
     "local_llm": HFAdapter,  # backward compat alias
+    "vllm": VLLMAdapter,
     "cellforge": CellForgeAdapter,
     "kosmos": KosmosAdapter,
 }
@@ -48,6 +52,7 @@ __all__ = [
     "ClaudeAdapter",
     "OpenAIAdapter",
     "HFAdapter",
+    "VLLMAdapter",
     "LocalLLMAdapter",
     "CellForgeAdapter",
     "KosmosAdapter",
