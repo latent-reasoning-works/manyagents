@@ -269,20 +269,33 @@ _scipy_required = pytest.mark.skipif(not _has_scipy, reason="scipy required")
 
 @_scipy_required
 def test_segment_by_velocity_basic():
-    """segment_by_velocity segments based on cosine distance peaks."""
+    """segment_by_velocity finds the cosine-distance spike at a sharp transition.
+
+    Two internally-smooth regions meet at an orthogonal jump at token 10: region A
+    points along dim 0, region B along the orthogonal dim 1, each with a tiny drift
+    so within-region velocity stays ~0. That makes the 9->10 boundary the one
+    prominent velocity peak, so the sequence splits into two steps there.
+
+    (A previous version filled both regions with i.i.d. random states; that gives
+    *every* step a high, peak-less velocity, so the boundary never stood out and
+    find_peaks returned nothing — the data had a level shift, not an isolated spike.)
+    """
     tok = _FakeTokenizer()
-    n_tokens = 20
-    n_layers = 2
-    d_model = 32
-    rng = np.random.RandomState(42)
-    hs = rng.randn(n_tokens, n_layers, d_model).astype(np.float32)
-    # Inject a sharp transition at token 10
-    hs[10:, -1, :] = hs[10:, -1, :] + 5.0
+    n_tokens, d_model = 20, 32
+    hs = np.zeros((n_tokens, 2, d_model), dtype=np.float32)
+    for i in range(n_tokens):
+        if i < 10:
+            hs[i, -1, 0] = 1.0
+            hs[i, -1, 2] = 0.01 * i           # smooth drift within region A
+        else:
+            hs[i, -1, 1] = 1.0
+            hs[i, -1, 3] = 0.01 * (i - 10)    # smooth drift within region B
 
     text = "x" * (n_tokens * 4)  # enough chars for ~n_tokens tokens
     steps = segment_by_velocity(text, tok, hs, min_segment_tokens=3, prominence_factor=0.5)
 
     assert len(steps) >= 2
+    assert any(s["token_start"] == 10 for s in steps)  # boundary at the injected transition
     assert steps[-1]["kind"] == "output"
     assert all(s["kind"] == "thinking" for s in steps[:-1])
 

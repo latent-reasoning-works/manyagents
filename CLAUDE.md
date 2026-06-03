@@ -103,7 +103,7 @@ main.yaml       Root config (merges all groups)
 | `MockAdapter` | Testing | always |
 | `PlaceholderAdapter` | Stub | always |
 
-Get an adapter by name: `from manyagents.adapters import get_adapter`.
+Get an adapter by name via the registry dict: `from manyagents.adapters import ADAPTER_REGISTRY; ADAPTER_REGISTRY["claude"]()`.
 
 ## Adding a New Adapter
 
@@ -116,7 +116,7 @@ Get an adapter by name: `from manyagents.adapters import get_adapter`.
    - Lazy-import optional deps inside methods
 
 2. **Export**: `manyagents/adapters/__init__.py`
-   - Add to imports and `get_adapter()` registry
+   - Add to imports and the `ADAPTER_REGISTRY` dict
 
 3. **Config**: `manyagents/configs/agent/<name>.yaml`
    - Adapter-specific defaults
