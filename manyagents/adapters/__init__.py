@@ -7,7 +7,7 @@ Provides a centralized registry of all available adapters.
 from .base import AgentAdapter
 from .mock_adapter import MockAdapter
 from .claude_adapter import ClaudeAdapter
-from .openai_adapter import OpenAIAdapter
+from .openai_adapter import OpenAIAdapter, OllamaAdapter
 from .hf_adapter import HFAdapter
 from .vllm_adapter import VLLMAdapter
 from .cellforge_adapter import CellForgeAdapter
@@ -21,6 +21,7 @@ ADAPTER_REGISTRY = {
     "mock": MockAdapter,
     "claude": ClaudeAdapter,
     "openai": OpenAIAdapter,
+    "ollama": OllamaAdapter,  # OpenAI-compatible local server (laptop dev, no GPU)
     "hf": HFAdapter,
     "local_llm": HFAdapter,  # backward compat alias
     "vllm": VLLMAdapter,
@@ -51,6 +52,7 @@ __all__ = [
     "MockAdapter",
     "ClaudeAdapter",
     "OpenAIAdapter",
+    "OllamaAdapter",
     "HFAdapter",
     "VLLMAdapter",
     "LocalLLMAdapter",
