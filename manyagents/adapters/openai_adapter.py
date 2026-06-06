@@ -26,14 +26,21 @@ class OpenAIAdapter(AgentAdapter):
     DEFAULT_TEMPERATURE = 0.0
     DEFAULT_MAX_TOKENS = 2000
 
-    def __init__(self):
+    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
         super().__init__("openai")
-        api_key = os.getenv('OPENAI_API_KEY')
+        base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
+
+        # OpenAI-compatible local servers (ollama, vLLM serve, LM Studio) ignore
+        # the key, but AsyncOpenAI still requires a non-empty value.
+        if base_url and not api_key:
+            api_key = "local"
 
         if not api_key:
             log.warning("OPENAI_API_KEY not found. Set it before calling run().")
 
-        self.client = AsyncOpenAI(api_key=api_key) if api_key else None
+        self.base_url = base_url
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url) if api_key else None
 
     def _build_messages(self, prompt: str, system_prompt: str | None = None) -> List[Dict[str, str]]:
         """Build message list for OpenAI API."""
@@ -133,3 +140,23 @@ class OpenAIAdapter(AgentAdapter):
                 "response_format": response_format,
             }
         )
+
+
+class OllamaAdapter(OpenAIAdapter):
+    """``OpenAIAdapter`` pointed at a local ollama server (OpenAI-compatible API).
+
+    Enables local, GPU-free generation on a laptop. No hidden-state traces on
+    this path (ollama does not expose them) — use the vLLM/HF adapters for traces.
+    Model names carry ollama tags, e.g. ``qwen3:30b`` (see ``ollama list``).
+    Override the endpoint with ``OLLAMA_BASE_URL``.
+    """
+
+    DEFAULT_BASE_URL = "http://localhost:11434/v1"
+    DEFAULT_MODEL = "qwen3"
+
+    def __init__(self):
+        super().__init__(
+            base_url=os.getenv("OLLAMA_BASE_URL", self.DEFAULT_BASE_URL),
+            api_key="ollama",
+        )
+        self.name = "ollama"
