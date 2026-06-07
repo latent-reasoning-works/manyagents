@@ -1,10 +1,11 @@
 """Claude adapter for LLM-based agent orchestration."""
 
+import json
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .base import AgentAdapter, AdapterResult
 from manyagents.utils.helpers import truncate_string, parse_json_safe
@@ -20,13 +21,14 @@ log = logging.getLogger(__name__)
 class ClaudeAdapter(AgentAdapter):
     """Adapter for Anthropic Claude API integration."""
 
-    DEFAULT_MODEL = "claude-sonnet-4-20250514"
+    DEFAULT_MODEL = "claude-opus-4-8"
     DEFAULT_TEMPERATURE = 0.0
-    DEFAULT_MAX_TOKENS = 2000
+    DEFAULT_MAX_TOKENS = 4096
 
-    def __init__(self):
+    def __init__(self, api_key: Optional[str] = None):
         super().__init__("claude")
-        self.api_key = os.getenv('ANTHROPIC_API_KEY')
+        # Explicit key wins; else env. Lets callers inject a key without env vars.
+        self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
         self.client = None
 
         if not self.api_key:
@@ -54,6 +56,125 @@ class ClaudeAdapter(AgentAdapter):
         if system := task_config.get(SYSTEM_PROMPT):
             params["system"] = system
         return params
+
+    # ---- Agentic loop primitive (mirrors OpenAIAdapter.chat) ----------------
+    #
+    # The loop is OpenAI-shaped; each adapter translates at its own boundary.
+    # OpenAI messages/tools  -> Anthropic messages/tools  (on the way in)
+    # Anthropic tool_use blocks -> normalized {id,name,arguments}  (on the way out)
+
+    @staticmethod
+    def _to_anthropic_tools(tools: Optional[List[Dict[str, Any]]]):
+        if not tools:
+            return None
+        out = []
+        for t in tools:
+            fn = t.get("function", t)
+            out.append({
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
+            })
+        return out
+
+    @staticmethod
+    def _to_anthropic_messages(messages: List[Dict[str, Any]]):
+        """Translate OpenAI-format messages to (system, anthropic_messages)."""
+        system: Optional[str] = None
+        out: List[Dict[str, Any]] = []
+        for m in messages:
+            role = m["role"]
+            if role == "system":
+                system = m["content"] if system is None else f"{system}\n\n{m['content']}"
+            elif role == "tool":
+                # OpenAI tool result -> Anthropic user turn with a tool_result block
+                out.append({"role": "user", "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": m["tool_call_id"],
+                    "content": m["content"],
+                }]})
+            elif role == "assistant" and m.get("tool_calls"):
+                blocks: List[Dict[str, Any]] = []
+                if m.get("content"):
+                    blocks.append({"type": "text", "text": m["content"]})
+                for tc in m["tool_calls"]:
+                    fn = tc["function"]
+                    try:
+                        args = json.loads(fn["arguments"]) if fn.get("arguments") else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    blocks.append({
+                        "type": "tool_use", "id": tc["id"],
+                        "name": fn["name"], "input": args,
+                    })
+                out.append({"role": "assistant", "content": blocks})
+            else:
+                out.append({"role": role, "content": m["content"]})
+        return system, out
+
+    async def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,  # accepted, ignored (Opus 4.7+ reject it)
+        max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """One Claude turn for the agentic loop. Returns the OpenAI-shaped turn
+        the loop expects: {"message", "tool_calls": [{id,name,arguments}], "content"}.
+        """
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(
+                "Claude unavailable — set ANTHROPIC_API_KEY (or pass api_key) "
+                "and install the anthropic package."
+            )
+
+        system, anthropic_messages = self._to_anthropic_messages(messages)
+        params: Dict[str, Any] = {
+            "model": model or self.DEFAULT_MODEL,
+            "messages": anthropic_messages,
+            "max_tokens": max_tokens or self.DEFAULT_MAX_TOKENS,
+        }
+        if system:
+            params["system"] = system
+        if tools:
+            params["tools"] = self._to_anthropic_tools(tools)
+
+        response = await retry_with_backoff(
+            coro_fn=lambda: client.messages.create(**params),
+            max_retries=DEFAULT_MAX_RETRIES,
+            base_delay=DEFAULT_RETRY_BASE_DELAY,
+            retryable_check=lambda e: not is_auth_error(e),
+            logger=log,
+        )
+
+        text = ""
+        tool_calls: List[Dict[str, Any]] = []
+        assistant_blocks: List[Dict[str, Any]] = []
+        for block in response.content:
+            btype = getattr(block, "type", None)
+            if btype == "text":
+                text = block.text
+                assistant_blocks.append({"type": "text", "text": block.text})
+            elif btype == "tool_use":
+                tool_calls.append({
+                    "id": block.id,
+                    "name": block.name,
+                    "arguments": json.dumps(block.input or {}),  # loop json.loads() this
+                })
+
+        # Rebuild the assistant turn in OpenAI shape so the loop can append it and
+        # _to_anthropic_messages can round-trip it on the next call.
+        assistant_msg: Dict[str, Any] = {"role": "assistant", "content": text}
+        if tool_calls:
+            assistant_msg["tool_calls"] = [
+                {"id": c["id"], "type": "function",
+                 "function": {"name": c["name"], "arguments": c["arguments"]}}
+                for c in tool_calls
+            ]
+        return {"message": assistant_msg, "tool_calls": tool_calls, "content": text}
 
     async def run(
         self,
