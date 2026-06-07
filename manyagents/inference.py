@@ -197,8 +197,14 @@ def load_model(
     device_map: str = "auto",
     dtype=None,
     trust_remote_code: bool = True,
+    attn_implementation: str | None = None,
 ):
     """Load a model and tokenizer via ``HFTrainerModule``.
+
+    Args:
+        attn_implementation: forwarded to ``HFTrainerConfig`` (e.g. ``"eager"``,
+            ``"sdpa"``). On MPS, ``"eager"`` avoids SDPA NaN instabilities seen
+            with long-context generation.
 
     Returns ``(network, tokenizer, hf_module)`` where *network* is the
     underlying ``nn.Module`` ready for inference.
@@ -214,6 +220,7 @@ def load_model(
         torch_dtype=dtype,
         trust_remote_code=trust_remote_code,
         device_map=device_map,
+        attn_implementation=attn_implementation,
     )
     hf_module = HFTrainerModule(config)
     hf_module.configure_model()
@@ -1113,6 +1120,7 @@ def extract_trace(
     layers: list[int] | None = None,
     step_delimiter: str = "\n",
     segmentation: str = "delimiter",
+    state_dtype: str = "float16",
 ) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
     """Full trace extraction pipeline: prompt -> generate -> segment -> pool -> trace.
 
@@ -1197,9 +1205,14 @@ def extract_trace(
         backend=trace_backend,
     )
 
+    # NOTE: float16 (the historical default) overflows to +/-inf on the few
+    # "massive activation" channels (magnitudes ~1e4-1e5 > float16 max 65504).
+    # Pass state_dtype="float32" for faithful geometry on raw residual-stream
+    # layers; see Sun et al. 2024 (arXiv:2402.17762).
+    dt = getattr(np, state_dtype)
     hidden_states = {
-        "pooled_steps": pooled.astype(np.float16),
-        "token_level": gen["token_hidden_states"].astype(np.float16),
+        "pooled_steps": pooled.astype(dt),
+        "token_level": gen["token_hidden_states"].astype(dt),
     }
 
     return trace, hidden_states
