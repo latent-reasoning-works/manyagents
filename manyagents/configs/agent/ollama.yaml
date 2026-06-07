@@ -1,0 +1,15 @@
+# @package _global_
+# Ollama local server agent configuration (OpenAI-compatible API)
+#
+# Generation only — ollama serves quantized GGUF behind HTTP and does not
+# expose hidden states, so capture_hidden_states/build_trace are unsupported
+# on this path. Use the vllm or hf agents for reasoning traces.
+# Endpoint defaults to http://localhost:11434/v1; override with OLLAMA_BASE_URL.
+
+agent:
+  name: ollama
+  adapter: ollama
+  config:
+    model: qwen3  # ollama tag, e.g. qwen3:30b — see `ollama list`
+    temperature: 0.0
+    max_tokens: 2000

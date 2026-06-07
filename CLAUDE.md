@@ -78,7 +78,7 @@ Two storage layers: metadata (JSONL per trace) + tensors (npz per model).
 Hydra config groups under `manyagents/configs/`:
 
 ```
-agent/          claude, openai, hf, local_llm, local_llm_70b, mock, biomni
+agent/          claude, openai, ollama, hf, vllm, local_llm, local_llm_70b, mock, biomni
 experiment/     geometric_reasoning, invariance_golden, invariance_full,
                 llm_reasoning_sweep, baseline_sweep, trace_extraction, ...
 cluster/        local, mila_remote, mila_slurm, mila_sweep
@@ -89,21 +89,25 @@ main.yaml       Root config (merges all groups)
 
 ## Adapters
 
-13 adapters behind `AgentAdapter`:
+11 adapters behind `AgentAdapter`:
 
-| Adapter | Type | Import guard |
-|---------|------|-------------|
-| `ClaudeAdapter` | API | always |
-| `OpenAIAdapter` | API | always |
-| `HFAdapter` | Local | always (alias: `local_llm`) |
-| `ManyLatentsAdapter` | Python | optional (`manylatents`) |
-| `CellForgeAdapter` | CLI | always |
-| `KosmosAdapter` | CLI | always |
-| `BiomniAdapter` | CLI | optional (`biomni>=0.0.2`) |
-| `MockAdapter` | Testing | always |
-| `PlaceholderAdapter` | Stub | always |
+| Adapter | Type | Hidden-state traces | Import guard |
+|---------|------|---------------------|-------------|
+| `ClaudeAdapter` | API | no | always |
+| `OpenAIAdapter` | API | no | always |
+| `OllamaAdapter` | API (local server) | **no — generation only** | always |
+| `HFAdapter` | Local | yes (native) | always (alias: `local_llm`) |
+| `VLLMAdapter` | Local | yes (HF replay) | always (vllm lazy-imported) |
+| `ManyLatentsAdapter` | Python | n/a | optional (`manylatents`) |
+| `CellForgeAdapter` | CLI | n/a | always |
+| `KosmosAdapter` | CLI | n/a | always |
+| `BiomniAdapter` | CLI | n/a | optional (`biomni>=0.0.2`) |
+| `MockAdapter` | Testing | n/a | always |
+| `PlaceholderAdapter` | Stub | n/a | always |
 
 Get an adapter by name via the registry dict: `from manyagents.adapters import ADAPTER_REGISTRY; ADAPTER_REGISTRY["claude"]()`.
+
+**Ollama limitation:** `OllamaAdapter` is for cheap laptop generation (prompt/orchestration iteration, no GPU). Ollama serves quantized GGUF behind an HTTP API and exposes no hidden states, so `capture_hidden_states`/`build_trace` do not work on this path — and bolting an HF replay onto it would reintroduce the model-loading cost ollama avoids, plus quantization/tokenizer mismatch confounds. For reasoning traces use `vllm` (bulk, cluster) or `hf` (exact layer hooks via manylatents `ActivationExtractor`).
 
 ## Adding a New Adapter
 
