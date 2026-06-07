@@ -10,7 +10,7 @@ from openai import AsyncOpenAI, AuthenticationError
 
 from .base import AgentAdapter, AdapterResult
 from manyagents.utils.helpers import truncate_string, parse_json_safe
-from manyagents.utils.retry import retry_with_backoff, is_auth_error
+from manyagents.utils.retry import retry_with_backoff
 from manyagents.utils.constants import (
     PROMPT, SYSTEM_PROMPT, TEMPERATURE, MAX_TOKENS, MODEL, RESPONSE_FORMAT,
     DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BASE_DELAY,
@@ -61,7 +61,69 @@ class OpenAIAdapter(AgentAdapter):
         }
         if task_config.get(RESPONSE_FORMAT) == "json_object":
             params["response_format"] = {"type": "json_object"}
+        # Tool calling (agentic loop): pass OpenAI-format tool schemas straight
+        # through. ollama / vLLM serve this on their OpenAI-compatible endpoints.
+        if task_config.get("tools"):
+            params["tools"] = task_config["tools"]
         return params
+
+    async def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Single chat-completion turn for the agentic loop (provider primitive).
+
+        Unlike ``run()`` (single-shot, eval-shaped ``AdapterResult``), this takes a
+        full ``messages`` list and returns the raw assistant turn so the loop can
+        append it and feed tool results back. Returns:
+            {"message": <assistant message dict>, "tool_calls": [...], "content": str}
+        """
+        if not self.client:
+            raise RuntimeError("OpenAI client not configured (missing API key / base_url)")
+
+        params: Dict[str, Any] = {
+            "model": model or self.DEFAULT_MODEL,
+            "messages": messages,
+            "temperature": self.DEFAULT_TEMPERATURE if temperature is None else temperature,
+            "max_tokens": max_tokens or self.DEFAULT_MAX_TOKENS,
+        }
+        if tools:
+            params["tools"] = tools
+
+        response = await retry_with_backoff(
+            coro_fn=lambda: self.client.chat.completions.create(**params),
+            max_retries=DEFAULT_MAX_RETRIES,
+            base_delay=DEFAULT_RETRY_BASE_DELAY,
+            retryable_check=lambda e: not isinstance(e, AuthenticationError),
+            logger=log,
+        )
+
+        msg = response.choices[0].message
+        tool_calls = [
+            {
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": tc.function.arguments,  # JSON string
+            }
+            for tc in (msg.tool_calls or [])
+        ]
+        # Reconstruct the assistant message as a plain dict to append to history.
+        assistant_msg: Dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+        if msg.tool_calls:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        return {"message": assistant_msg, "tool_calls": tool_calls, "content": msg.content or ""}
 
     async def run(
         self,
