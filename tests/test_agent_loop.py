@@ -102,3 +102,30 @@ def test_to_openai_schemas_list():
     extra = Tool("noop", "noop", {"type": "object", "properties": {}}, run=lambda: "ok")
     schemas = to_openai_schemas([MOCK_TOOL, extra])
     assert [s["function"]["name"] for s in schemas] == ["echo", "noop"]
+
+
+@pytest.mark.asyncio
+async def test_history_threads_across_turns(monkeypatch):
+    """A REPL passes result.messages back as history; the model sees prior turns."""
+    seen_messages = []
+
+    class RecordingAdapter:
+        async def chat(self, messages, *, tools=None, model=None, **kw):
+            seen_messages.append(list(messages))
+            return {"message": {"role": "assistant", "content": "ok"},
+                    "tool_calls": [], "content": "ok"}
+
+    monkeypatch.setattr(
+        "manyagents.adapters.ADAPTER_REGISTRY", {"rec": RecordingAdapter}, raising=False,
+    )
+
+    r1 = await run_agent_loop("first", agent="rec", system_prompt="SYS")
+    r2 = await run_agent_loop("second", agent="rec", history=r1.messages)
+
+    # turn 2's request carries the system prompt + turn-1 user/assistant + new user
+    roles = [m["role"] for m in seen_messages[1]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert seen_messages[1][1]["content"] == "first"
+    assert seen_messages[1][-1]["content"] == "second"
+    # system prompt is not duplicated when continuing from history
+    assert sum(1 for m in r2.messages if m["role"] == "system") == 1

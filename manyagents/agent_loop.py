@@ -38,6 +38,7 @@ async def run_agent_loop(
     model: Optional[str] = None,
     tools: Optional[list[Tool]] = None,
     system_prompt: Optional[str] = None,
+    history: Optional[list[dict[str, Any]]] = None,
     max_steps: int = 8,
     on_event: Optional[Callable[[str, dict[str, Any]], None]] = None,
 ) -> AgentResult:
@@ -48,6 +49,10 @@ async def run_agent_loop(
         agent: registry key for an adapter exposing ``chat()`` (ollama/openai/...).
         model: model override (e.g. "qwen3:30b"); adapter default otherwise.
         tools: the tools the model may call. None/empty => plain chat, one turn.
+        system_prompt: prepended once when ``history`` is empty.
+        history: prior transcript to continue (a previous ``AgentResult.messages``).
+            Enables multi-turn REPLs — pass it back each turn; ``result.messages``
+            is the updated transcript to feed into the next call.
         max_steps: safety rail — local models loop poorly; bound the turns.
         on_event: optional callback(kind, payload) for UI ("assistant"/"tool_call"/"tool_result").
     """
@@ -63,8 +68,8 @@ async def run_agent_loop(
     registry = {t.name: t for t in tools}
     schemas = to_openai_schemas(tools) if tools else None
 
-    messages: list[dict[str, Any]] = []
-    if system_prompt:
+    messages: list[dict[str, Any]] = list(history) if history else []
+    if system_prompt and not messages:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
