@@ -60,8 +60,9 @@ def discover_manylatents_extensions() -> List[Tuple[str, Path]]:
 
                     for metrics_dir in potential_metrics_dirs:
                         if metrics_dir.exists() and metrics_dir.is_dir():
-                            # Check if it has any metric group subdirs
-                            has_metrics = any(
+                            # Flat *.yaml layout (manylatents >= 0.1.5) or
+                            # legacy group subdirs (embedding/dataset/module)
+                            has_metrics = any(metrics_dir.glob('*.yaml')) or any(
                                 (metrics_dir / group).exists()
                                 for group in ['embedding', 'dataset', 'module']
                             )
@@ -102,64 +103,93 @@ def scan_metric_configs(metrics_dir: Path, source_label: str = "core") -> Dict[s
     """
     registry = {}
 
-    # Scan each group directory
-    groups = ['embedding', 'dataset', 'module']
-
-    for group in groups:
+    # manylatents >= 0.1.5 (PR #251) uses a flat configs/metrics/*.yaml layout
+    # where each metric declares its routing target via an `at:` field
+    # (embedding | dataset | module). Older layouts grouped configs into
+    # embedding/dataset/module subdirectories — scan both so extensions on the
+    # old layout keep working. Defaults-list bundles (e.g. standard.yaml) have
+    # no _target_ entries and are skipped by the guards below.
+    candidates = [(f, None) for f in sorted(metrics_dir.glob('*.yaml'))]
+    for group in ['embedding', 'dataset', 'module']:
         group_dir = metrics_dir / group
-        if not group_dir.exists():
-            logger.warning(f"Metrics group directory not found: {group_dir}")
+        if group_dir.exists():
+            candidates += [(f, group) for f in sorted(group_dir.glob('*.yaml'))]
+
+    if not candidates:
+        logger.warning(f"No metric configs found in: {metrics_dir}")
+
+    for config_file, group_hint in candidates:
+        # Skip test files and __init__
+        if config_file.stem.startswith('test_') or config_file.stem == '__init__':
             continue
 
-        # Scan all YAML files in group
-        for config_file in group_dir.glob('*.yaml'):
-            # Skip test files and __init__
-            if config_file.stem.startswith('test_') or config_file.stem == '__init__':
+        try:
+            with open(config_file) as f:
+                config_data = yaml.safe_load(f)
+
+            if not config_data:
                 continue
 
-            try:
-                with open(config_file) as f:
-                    config_data = yaml.safe_load(f)
-
-                if not config_data:
+            # Extract metric info from config
+            # Config format: {metric_name: {_target_: ..., _partial_: ..., at: ..., param: value, ...}}
+            for metric_name, metric_config in config_data.items():
+                if not isinstance(metric_config, dict):
                     continue
 
-                # Extract metric info from config
-                # Config format: {metric_name: {_target_: ..., _partial_: ..., param: value, ...}}
-                for metric_name, metric_config in config_data.items():
-                    if not isinstance(metric_config, dict):
-                        continue
+                # Extract _target_ (class path)
+                target = metric_config.get('_target_')
+                if not target:
+                    logger.warning(f"No _target_ found for {metric_name} in {config_file}")
+                    continue
 
-                    # Extract _target_ (class path)
-                    target = metric_config.get('_target_')
-                    if not target:
-                        logger.warning(f"No _target_ found for {metric_name} in {config_file}")
-                        continue
+                # Multiple config files may define the same metric name (e.g.
+                # sweep variants: trustworthiness_k.yaml also defines
+                # `trustworthiness` with list-valued params). The file whose
+                # stem matches the metric name is canonical; other collisions
+                # keep the first (sorted) occurrence.
+                if metric_name in registry and config_file.stem != metric_name:
+                    logger.debug(
+                        f"Skipping duplicate definition of '{metric_name}' from "
+                        f"{config_file.name} (already registered from "
+                        f"{registry[metric_name]['source_file']})"
+                    )
+                    continue
 
-                    # Extract _partial_ (default True for metrics)
-                    partial = metric_config.get('_partial_', True)
+                # Routing group: `at` field (flat layout), else the legacy
+                # subdirectory name, else the manylatents default (embedding).
+                group = metric_config.get('at', group_hint)
+                if group is None:
+                    logger.warning(
+                        f"No `at` field for {metric_name} in {config_file}; "
+                        f"defaulting to group 'embedding'"
+                    )
+                    group = 'embedding'
 
-                    # Extract default parameters (everything except _target_ and _partial_)
-                    defaults = {
-                        k: v for k, v in metric_config.items()
-                        if not k.startswith('_')
-                    }
+                # Extract _partial_ (default True for metrics)
+                partial = metric_config.get('_partial_', True)
 
-                    # Add to registry
-                    registry[metric_name] = {
-                        'class': target,
-                        'group': group,
-                        'defaults': defaults,
-                        'partial': partial,
-                        'source': source_label,
-                        'source_file': str(config_file.relative_to(metrics_dir.parent.parent))
-                    }
+                # Extract default parameters (everything except _target_,
+                # _partial_, and the `at` routing field)
+                defaults = {
+                    k: v for k, v in metric_config.items()
+                    if not k.startswith('_') and k != 'at'
+                }
 
-                    logger.debug(f"Registered metric: {metric_name} ({group}) from {source_label}/{config_file.name}")
+                # Add to registry
+                registry[metric_name] = {
+                    'class': target,
+                    'group': group,
+                    'defaults': defaults,
+                    'partial': partial,
+                    'source': source_label,
+                    'source_file': str(config_file.relative_to(metrics_dir.parent.parent))
+                }
 
-            except Exception as e:
-                logger.error(f"Failed to parse {config_file}: {e}")
-                continue
+                logger.debug(f"Registered metric: {metric_name} ({group}) from {source_label}/{config_file.name}")
+
+        except Exception as e:
+            logger.error(f"Failed to parse {config_file}: {e}")
+            continue
 
     return registry
 
@@ -266,7 +296,10 @@ def generate_metric_registry(output_path: Path, force: bool = False) -> Dict[str
 
             stored_version = existing_registry.get('_metadata', {}).get('manylatents_version')
 
-            if stored_version == current_version:
+            # An empty metrics dict means a previous scan found nothing
+            # (e.g. generated by an older scanner against a newer manylatents
+            # config layout) — treat it as invalid cache and regenerate.
+            if stored_version == current_version and existing_registry.get('metrics'):
                 logger.info(
                     f"Metric registry up-to-date (manylatents v{current_version}). "
                     f"Skipping regeneration."

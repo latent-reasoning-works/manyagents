@@ -1,6 +1,5 @@
 """Adapter for ManyLatents agent using direct API calls."""
 
-import asyncio
 import logging
 from functools import partial
 from pathlib import Path
@@ -166,7 +165,8 @@ class ManyLatentsAdapter(AgentAdapter):
             # Extract step info from task_config (don't pass to manylatents as overrides)
             step_idx = task_config.pop('step_idx', None)
             step_name = task_config.pop('step_name', None)
-            visualize_steps = task_config.pop('visualize_steps', None)
+            # Pop to strip from overrides passed to manylatents (value unused here)
+            task_config.pop('visualize_steps', None)
 
             # Check logging mode to determine if we should create visualizations
             # collect_only: NO visualizations (Geomancer will create later)
@@ -379,15 +379,15 @@ class ManyLatentsAdapter(AgentAdapter):
             # Validate manylatents config structure
             validate_manylatents_config(overrides)
 
-            log.info(f"Calling manylatents.api.run() with validated config")
+            log.info("Calling manylatents.api.run() with validated config")
 
             # DEBUG: Log the complete callbacks configuration
             if 'callbacks' in overrides:
                 import json
-                log.info(f"🔍 DEBUG: Full callbacks config being passed to manyLatents:")
+                log.info("🔍 DEBUG: Full callbacks config being passed to manyLatents:")
                 log.info(f"🔍 DEBUG: {json.dumps(overrides['callbacks'], indent=2)}")
             else:
-                log.info(f"🔍 DEBUG: No callbacks in overrides")
+                log.info("🔍 DEBUG: No callbacks in overrides")
 
             # Call manyLatents API
             # With WANDB_MODE='disabled', logger=None, and callbacks={},
@@ -413,7 +413,7 @@ class ManyLatentsAdapter(AgentAdapter):
 
             # Build summary
             summary_parts = [
-                f"ManyLatents successfully executed",
+                "ManyLatents successfully executed",
                 f"Output shape: {embeddings.shape if hasattr(embeddings, 'shape') else 'N/A'}",
             ]
 

@@ -2,7 +2,7 @@
 
 from itertools import combinations
 from statistics import mean
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, Set
 
 from .extractor import check_ground_truth_match
 

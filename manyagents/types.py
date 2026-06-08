@@ -10,7 +10,6 @@ See docs/design_decisions.md Decision 003 for the rationale behind this approach
 
 import logging
 from typing import Any, Optional, TypedDict
-from pathlib import Path
 import numpy as np
 
 logger = logging.getLogger(__name__)

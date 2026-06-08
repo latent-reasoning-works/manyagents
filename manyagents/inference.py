@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from typing import Dict, List, Optional
 
     import torch.nn as nn
+
+    from .schemas.reasoning import ModelBackend, ReasoningTrace, TaskInfo
 
 log = logging.getLogger(__name__)
 
@@ -409,10 +410,9 @@ def generate_with_hidden_states(
     input_length = input_ids.shape[1]
 
     n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
-    d_model = model.config.hidden_size
 
     layer_indices = (
-        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
+        [layer % n_layers for layer in layers] if layers is not None else list(range(n_layers))
     )
 
     do_sample = temperature > 0
@@ -606,7 +606,7 @@ def forward_hidden_states(
 
     n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
     layer_indices = (
-        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
+        [layer % n_layers for layer in layers] if layers is not None else list(range(n_layers))
     )
 
     start = time.time()
@@ -872,7 +872,6 @@ def segment_hybrid(
             prominence_factor=prominence_factor,
         )
 
-    think_content = match.group(1).strip()
     after_think = text[match.end():].strip()
 
     # Tokenize full text to get token ranges
