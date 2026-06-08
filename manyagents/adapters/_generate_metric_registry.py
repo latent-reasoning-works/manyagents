@@ -21,6 +21,12 @@ import importlib.util
 
 logger = logging.getLogger(__name__)
 
+# Routing targets a metric can declare via its `at:` field; also the legacy
+# config-subdirectory names. Consumed downstream by ManyLatentsAdapter to pick
+# each metric's call signature (see execute_cached), so an unknown value means
+# the metric is silently skipped at evaluation time.
+METRIC_GROUPS = ("embedding", "dataset", "module")
+
 
 def discover_manylatents_extensions() -> List[Tuple[str, Path]]:
     """
@@ -110,7 +116,7 @@ def scan_metric_configs(metrics_dir: Path, source_label: str = "core") -> Dict[s
     # old layout keep working. Defaults-list bundles (e.g. standard.yaml) have
     # no _target_ entries and are skipped by the guards below.
     candidates = [(f, None) for f in sorted(metrics_dir.glob('*.yaml'))]
-    for group in ['embedding', 'dataset', 'module']:
+    for group in METRIC_GROUPS:
         group_dir = metrics_dir / group
         if group_dir.exists():
             candidates += [(f, group) for f in sorted(group_dir.glob('*.yaml'))]
@@ -142,18 +148,27 @@ def scan_metric_configs(metrics_dir: Path, source_label: str = "core") -> Dict[s
                     logger.warning(f"No _target_ found for {metric_name} in {config_file}")
                     continue
 
-                # Multiple config files may define the same metric name (e.g.
-                # sweep variants: trustworthiness_k.yaml also defines
-                # `trustworthiness` with list-valued params). The file whose
-                # stem matches the metric name is canonical; other collisions
-                # keep the first (sorted) occurrence.
-                if metric_name in registry and config_file.stem != metric_name:
-                    logger.debug(
-                        f"Skipping duplicate definition of '{metric_name}' from "
-                        f"{config_file.name} (already registered from "
-                        f"{registry[metric_name]['source_file']})"
+                # Multiple config files may define the same metric name — e.g.
+                # persistent_homology_beta0.yaml defines `persistent_homology`
+                # and dse_t_sweep.yaml defines `diffusion_spectral_entropy`.
+                # The registry is keyed by name, so only one variant survives:
+                # the file whose stem matches the name is canonical. Warn on
+                # every collision (not DEBUG) so the dropped variant is visible
+                # — it is not separately addressable through this registry.
+                if metric_name in registry:
+                    prev = registry[metric_name]['source_file']
+                    if config_file.stem != metric_name:
+                        logger.warning(
+                            f"Metric name collision: '{metric_name}' in "
+                            f"{config_file.name} is dropped; keeping {prev}. "
+                            f"Variant configs that reuse a metric key are not "
+                            f"separately addressable by name."
+                        )
+                        continue
+                    logger.warning(
+                        f"Metric name collision: '{metric_name}' from canonical "
+                        f"{config_file.name} overrides earlier {prev}."
                     )
-                    continue
 
                 # Routing group: `at` field (flat layout), else the legacy
                 # subdirectory name, else the manylatents default (embedding).
@@ -164,6 +179,16 @@ def scan_metric_configs(metrics_dir: Path, source_label: str = "core") -> Dict[s
                         f"defaulting to group 'embedding'"
                     )
                     group = 'embedding'
+                elif group not in METRIC_GROUPS:
+                    # Registered anyway so the metric isn't silently absent, but
+                    # warn loudly — downstream dispatch only knows METRIC_GROUPS
+                    # and will skip an unrecognized routing target.
+                    logger.warning(
+                        f"Metric '{metric_name}' in {config_file} declares "
+                        f"unknown routing `at: {group}` (expected one of "
+                        f"{', '.join(METRIC_GROUPS)}); it will be skipped at "
+                        f"evaluation time."
+                    )
 
                 # Extract _partial_ (default True for metrics)
                 partial = metric_config.get('_partial_', True)
