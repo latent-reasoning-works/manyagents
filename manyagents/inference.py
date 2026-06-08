@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
     import torch.nn as nn
 
+    from manyagents.schemas.reasoning import ModelBackend, ReasoningTrace, TaskInfo
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -197,11 +199,14 @@ def load_model(
     device_map: str = "auto",
     dtype=None,
     trust_remote_code: bool = True,
+    attn_implementation: str | None = None,
 ):
     """Load a model and tokenizer via ``HFTrainerModule``.
 
     Returns ``(network, tokenizer, hf_module)`` where *network* is the
-    underlying ``nn.Module`` ready for inference.
+    underlying ``nn.Module`` ready for inference. ``attn_implementation``
+    (e.g. ``"sdpa"``, ``"eager"``, ``"flash_attention_2"``) is forwarded to
+    ``HFTrainerConfig`` when set; ``None`` leaves the HF default.
     """
     import torch
     from manylatents.lightning.hf_trainer import HFTrainerConfig, HFTrainerModule
@@ -209,12 +214,15 @@ def load_model(
     if dtype is None:
         dtype = torch.bfloat16
 
-    config = HFTrainerConfig(
+    cfg_kwargs = dict(
         model_name_or_path=model_path,
         torch_dtype=dtype,
         trust_remote_code=trust_remote_code,
         device_map=device_map,
     )
+    if attn_implementation is not None:
+        cfg_kwargs["attn_implementation"] = attn_implementation
+    config = HFTrainerConfig(**cfg_kwargs)
     hf_module = HFTrainerModule(config)
     hf_module.configure_model()
     return hf_module.network, hf_module.tokenizer, hf_module
@@ -388,8 +396,13 @@ def generate_with_hidden_states(
     max_new_tokens: int = 512,
     temperature: float = 0.7,
     layers: list[int] | None = None,
+    repetition_penalty: float = 1.0,
 ) -> dict:
     """Generate text and capture hidden states via HF ``output_hidden_states=True``.
+
+    ``repetition_penalty`` maps onto HF's ``generate`` kwarg of the same name
+    (1.0 = off); > 1.0 discourages token repetition, suppressing degenerate
+    loops/collapse so trajectory geometry reflects content, not a stuck decoder.
 
     Returns::
 
@@ -424,6 +437,7 @@ def generate_with_hidden_states(
             max_new_tokens=max_new_tokens,
             temperature=temperature if do_sample else None,
             do_sample=do_sample,
+            repetition_penalty=repetition_penalty,
             pad_token_id=tokenizer.eos_token_id,
             output_hidden_states=True,
             return_dict_in_generate=True,
@@ -1110,6 +1124,7 @@ def extract_trace(
     temperature: float = 0.7,
     top_p: float = 1.0,
     top_k: int = -1,
+    repetition_penalty: float = 1.0,
     layers: list[int] | None = None,
     step_delimiter: str = "\n",
     segmentation: str = "delimiter",
@@ -1137,12 +1152,15 @@ def extract_trace(
 
     formatted = build_prompt(tokenizer, prompt, system_prompt)
     gen_config: dict = {"max_new_tokens": max_new_tokens, "temperature": temperature}
+    if repetition_penalty != 1.0:
+        gen_config["repetition_penalty"] = repetition_penalty
 
     if backend == "hf":
         gen = generate_with_hidden_states(
             model, tokenizer, formatted,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
+            repetition_penalty=repetition_penalty,
             layers=layers,
         )
         trace_backend = ModelBackend.LOCAL
@@ -1157,6 +1175,10 @@ def extract_trace(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            sampling_overrides=(
+                {"repetition_penalty": repetition_penalty}
+                if repetition_penalty != 1.0 else None
+            ),
         )[0]
         full_ids = out["prompt_token_ids"] + out["completion_token_ids"]
         hs = forward_hidden_states(
@@ -1169,6 +1191,23 @@ def extract_trace(
     else:
         raise ValueError(f"Unknown backend '{backend}'. Choose 'hf' or 'vllm'.")
 
+    return _assemble_trace(
+        gen, tokenizer, task, model_name=model_name, model_path=model_path,
+        gen_config=gen_config, trace_backend=trace_backend,
+        segmentation=segmentation, step_delimiter=step_delimiter,
+    )
+
+
+def _assemble_trace(
+    gen: dict, tokenizer, task: "TaskInfo", *,
+    model_name: str, model_path: str, gen_config: dict, trace_backend,
+    segmentation: str = "delimiter", step_delimiter: str = "\n",
+) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
+    """Segment -> pool -> build trace from a ``gen`` dict (text + token states).
+
+    Shared post-generation tail for ``extract_trace`` and ``extract_traces_batch``
+    so both backends/paths build identical traces from the same ``gen`` contract.
+    """
     step_defs = segment(
         gen["text"],
         tokenizer,
@@ -1203,3 +1242,77 @@ def extract_trace(
     }
 
     return trace, hidden_states
+
+
+def extract_traces_batch(
+    model: "nn.Module",
+    tokenizer,
+    prompts: "list[str]",
+    tasks: "list[TaskInfo]",
+    *,
+    vllm_engine,
+    model_name: str,
+    model_path: str,
+    system_prompt: str | None = None,
+    max_new_tokens: int = 512,
+    temperature: float = 0.7,
+    top_p: float = 1.0,
+    top_k: int = -1,
+    repetition_penalty: float = 1.0,
+    layers: list[int] | None = None,
+    step_delimiter: str = "\n",
+    segmentation: str = "delimiter",
+) -> "list[tuple[ReasoningTrace, dict[str, np.ndarray]]]":
+    """Batched ``extract_trace`` (vLLM only): generate ALL prompts in one call.
+
+    vLLM continuously batches the whole prompt list in a single ``engine.generate``,
+    which is far faster than looping ``extract_trace`` one prompt at a time (batch
+    size 1 wastes vLLM's scheduler). Hidden states are then recovered per sequence
+    by a teacher-forced HF forward pass — identical to ``extract_trace(backend=
+    'vllm')`` for each item, just with generation amortized across the batch.
+
+    Returns a list of ``(trace, hidden_states)`` aligned with ``prompts``/``tasks``.
+    """
+    from manyagents.schemas.reasoning import ModelBackend
+
+    if vllm_engine is None:
+        raise ValueError("extract_traces_batch requires `vllm_engine`.")
+    if len(prompts) != len(tasks):
+        raise ValueError(
+            f"prompts ({len(prompts)}) and tasks ({len(tasks)}) must be the same length.")
+    if not prompts:
+        return []
+
+    formatted = [build_prompt(tokenizer, p, system_prompt) for p in prompts]
+    outs = vllm_generate(
+        formatted,
+        engine=vllm_engine,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        sampling_overrides=(
+            {"repetition_penalty": repetition_penalty}
+            if repetition_penalty != 1.0 else None
+        ),
+    )
+
+    gen_config: dict = {"max_new_tokens": max_new_tokens, "temperature": temperature,
+                        "top_p": top_p, "top_k": top_k}
+    if repetition_penalty != 1.0:
+        gen_config["repetition_penalty"] = repetition_penalty
+
+    results = []
+    for out, task in zip(outs, tasks):
+        full_ids = out["prompt_token_ids"] + out["completion_token_ids"]
+        hs = forward_hidden_states(
+            model, full_ids, input_length=out["input_length"], layers=layers,
+        )
+        gen = {**hs, "text": out["text"]}
+        gen["generation_time_ms"] = out["generation_time_ms"] + hs["generation_time_ms"]
+        results.append(_assemble_trace(
+            gen, tokenizer, task, model_name=model_name, model_path=model_path,
+            gen_config=dict(gen_config), trace_backend=ModelBackend.VLLM,
+            segmentation=segmentation, step_delimiter=step_delimiter,
+        ))
+    return results
