@@ -203,6 +203,11 @@ def load_model(
 ):
     """Load a model and tokenizer via ``HFTrainerModule``.
 
+    Args:
+        attn_implementation: forwarded to ``HFTrainerConfig`` (e.g. ``"eager"``,
+            ``"sdpa"``). On MPS, ``"eager"`` avoids SDPA NaN instabilities seen
+            with long-context generation.
+
     Returns ``(network, tokenizer, hf_module)`` where *network* is the
     underlying ``nn.Module`` ready for inference. ``attn_implementation``
     (e.g. ``"sdpa"``, ``"eager"``, ``"flash_attention_2"``) is forwarded to
@@ -219,6 +224,7 @@ def load_model(
         torch_dtype=dtype,
         trust_remote_code=trust_remote_code,
         device_map=device_map,
+        attn_implementation=attn_implementation,
     )
     if attn_implementation is not None:
         cfg_kwargs["attn_implementation"] = attn_implementation
@@ -586,12 +592,36 @@ def vllm_generate(
     return results
 
 
+def _final_norm_module(model: "nn.Module"):
+    """Locate a causal LM's final pre-readout norm across common HF families.
+
+    Covers the base-attribute and norm-attribute names used by Llama/Qwen/Gemma
+    (``.model.norm``), GPT-2 (``.transformer.ln_f``), GPT-NeoX/Pythia
+    (``.gpt_neox.final_layer_norm``), and MPT (``.transformer.norm_f``).
+    """
+    base = (
+        getattr(model, "model", None)
+        or getattr(model, "transformer", None)
+        or getattr(model, "gpt_neox", None)
+        or model
+    )
+    for attr in ("norm", "ln_f", "final_layer_norm", "final_layernorm", "norm_f"):
+        mod = getattr(base, attr, None)
+        if mod is not None:
+            return mod
+    raise ValueError(
+        "could not locate the final norm module; pass a model whose base exposes "
+        "`.norm`/`.ln_f`/`.final_layer_norm`/`.norm_f`"
+    )
+
+
 def forward_hidden_states(
     model: "nn.Module",
     input_ids: "list[int]",
     *,
     input_length: int,
     layers: "list[int] | None" = None,
+    capture_prenorm: bool = False,
 ) -> dict:
     """Teacher-forced forward pass over a fixed sequence; harvest per-token states.
 
@@ -606,11 +636,17 @@ def forward_hidden_states(
         input_ids: Full sequence — ``prompt_token_ids + completion_token_ids``.
         input_length: Length of the prompt prefix (``len(prompt_token_ids)``).
         layers: Layer indices to keep (negatives allowed); None = all layers.
+        capture_prenorm: also capture the final decoder block's output BEFORE the
+            model's final RMSNorm/LayerNorm. ``output_hidden_states[-1]`` is
+            post-norm (it equals ``last_hidden_state``); the pre-norm residual
+            stream is only reachable via a hook. The final norm is a readout
+            transform, so pre-norm states reflect the last *computational* state.
 
     Returns:
         Same shape contract as ``generate_with_hidden_states`` minus ``text``:
         ``{token_hidden_states (n_new, n_selected, d_model), input_length,
-        n_new_tokens, generation_time_ms, layers_captured}`` (float32).
+        n_new_tokens, generation_time_ms, layers_captured}`` (float32). When
+        ``capture_prenorm`` is set, also ``prenorm_hidden_states (n_new, d_model)``.
     """
     import torch
 
@@ -618,14 +654,37 @@ def forward_hidden_states(
     total = ids.shape[1]
     n_new = total - input_length
 
+    # The state that predicts completion token s lives at position
+    # (input_length - 1 + s), so the prefix must contribute at least one
+    # position. input_length == 0 would make both the token loop (range starting
+    # at -1, which wraps to the last position) and the prenorm slice
+    # (`[-1:total-1]`, empty) produce wrong, mutually-inconsistent shapes.
+    if not 1 <= input_length <= total:
+        raise ValueError(
+            f"input_length must be in [1, {total}] (got {input_length}); it is "
+            "the prompt-prefix length that supplies the predict-next position."
+        )
+
     n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
     layer_indices = (
         [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
     )
 
+    prenorm_buf: dict = {}
+    handle = None
+    if capture_prenorm:
+        norm = _final_norm_module(model)
+        def _pre_hook(_module, args):  # args[0] = residual stream entering the norm
+            prenorm_buf["x"] = args[0].detach()
+        handle = norm.register_forward_pre_hook(_pre_hook)
+
     start = time.time()
-    with torch.no_grad():
-        outputs = model(ids, output_hidden_states=True, use_cache=False)
+    try:
+        with torch.no_grad():
+            outputs = model(ids, output_hidden_states=True, use_cache=False)
+    finally:
+        if handle is not None:
+            handle.remove()
     forward_time_ms = int((time.time() - start) * 1000)
 
     # Position (input_length - 1 + s) is the state that predicts completion
@@ -644,13 +703,19 @@ def forward_hidden_states(
         d_model = model.config.hidden_size
         token_hidden_states = np.empty((0, len(layer_indices), d_model), dtype=np.float32)
 
-    return {
+    result = {
         "token_hidden_states": token_hidden_states.astype(np.float32),
         "input_length": int(input_length),
         "n_new_tokens": int(n_new),
         "generation_time_ms": forward_time_ms,
         "layers_captured": layer_indices,
     }
+    if capture_prenorm:
+        if "x" not in prenorm_buf:
+            raise RuntimeError("pre-norm hook did not fire; check _final_norm_module")
+        pre = prenorm_buf["x"][0, input_length - 1:total - 1, :].cpu().float().numpy()
+        result["prenorm_hidden_states"] = pre.astype(np.float32)  # (n_new, d_model)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1128,6 +1193,7 @@ def extract_trace(
     layers: list[int] | None = None,
     step_delimiter: str = "\n",
     segmentation: str = "delimiter",
+    state_dtype: str = "float16",
 ) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
     """Full trace extraction pipeline: prompt -> generate -> segment -> pool -> trace.
 
@@ -1236,9 +1302,14 @@ def _assemble_trace(
         backend=trace_backend,
     )
 
+    # NOTE: float16 (the historical default) overflows to +/-inf on the few
+    # "massive activation" channels (magnitudes ~1e4-1e5 > float16 max 65504).
+    # Pass state_dtype="float32" for faithful geometry on raw residual-stream
+    # layers; see Sun et al. 2024 (arXiv:2402.17762).
+    dt = getattr(np, state_dtype)
     hidden_states = {
-        "pooled_steps": pooled.astype(np.float16),
-        "token_level": gen["token_hidden_states"].astype(np.float16),
+        "pooled_steps": pooled.astype(dt),
+        "token_level": gen["token_hidden_states"].astype(dt),
     }
 
     return trace, hidden_states
