@@ -1261,6 +1261,7 @@ def extract_trace(
         gen, tokenizer, task, model_name=model_name, model_path=model_path,
         gen_config=gen_config, trace_backend=trace_backend,
         segmentation=segmentation, step_delimiter=step_delimiter,
+        state_dtype=state_dtype,
     )
 
 
@@ -1268,6 +1269,7 @@ def _assemble_trace(
     gen: dict, tokenizer, task: "TaskInfo", *,
     model_name: str, model_path: str, gen_config: dict, trace_backend,
     segmentation: str = "delimiter", step_delimiter: str = "\n",
+    state_dtype: str = "float16",
 ) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
     """Segment -> pool -> build trace from a ``gen`` dict (text + token states).
 
@@ -1333,6 +1335,7 @@ def extract_traces_batch(
     layers: list[int] | None = None,
     step_delimiter: str = "\n",
     segmentation: str = "delimiter",
+    state_dtype: str = "float16",
 ) -> "list[tuple[ReasoningTrace, dict[str, np.ndarray]]]":
     """Batched ``extract_trace`` (vLLM only): generate ALL prompts in one call.
 
@@ -1385,5 +1388,6 @@ def extract_traces_batch(
             gen, tokenizer, task, model_name=model_name, model_path=model_path,
             gen_config=dict(gen_config), trace_backend=ModelBackend.VLLM,
             segmentation=segmentation, step_delimiter=step_delimiter,
+            state_dtype=state_dtype,
         ))
     return results
