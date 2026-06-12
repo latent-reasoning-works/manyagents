@@ -168,6 +168,128 @@ def test_extract_trace_fallback_single_step():
     assert hs["pooled_steps"].shape[0] == len(trace.steps)
 
 
+def test_extract_trace_forwards_repetition_penalty():
+    """extract_trace threads repetition_penalty into HF gen and records it (>1 only)."""
+    model = MagicMock()
+    tokenizer = _mock_tokenizer()
+    task = TaskInfo("gsm8k", "train_0", "Q?")
+    seen = {}
+
+    def _recording_gen(model, tokenizer, prompt, **kwargs):
+        seen.update(kwargs)
+        return _mock_generate_with_hidden_states(model, tokenizer, prompt, **kwargs)
+
+    with patch("manyagents.inference.generate_with_hidden_states", _recording_gen):
+        trace, _ = extract_trace(
+            model, tokenizer, prompt="Q?", task=task,
+            model_name="t", model_path="/t", repetition_penalty=1.3,
+        )
+    assert seen["repetition_penalty"] == 1.3
+    # provenance: a non-default penalty is recorded on the trace
+    assert trace.model.generation_config["repetition_penalty"] == 1.3
+
+    # default (1.0) is the committed/no-ablation condition: not recorded as a knob
+    seen.clear()
+    with patch("manyagents.inference.generate_with_hidden_states", _recording_gen):
+        trace, _ = extract_trace(
+            model, tokenizer, prompt="Q?", task=task,
+            model_name="t", model_path="/t",
+        )
+    assert seen["repetition_penalty"] == 1.0
+    assert "repetition_penalty" not in trace.model.generation_config
+
+
+def test_generate_with_hidden_states_passes_repetition_penalty():
+    """generate_with_hidden_states forwards repetition_penalty to model.generate."""
+    import torch
+    from manyagents.inference import generate_with_hidden_states
+
+    model = MagicMock()
+    model.config.num_hidden_layers = 1
+    model.config.hidden_size = 4
+    model.device = "cpu"
+
+    tok = MagicMock()
+    tok.return_value = {"input_ids": torch.zeros(1, 3, dtype=torch.long)}
+    tok.eos_token_id = 0
+    tok.decode = lambda ids, skip_special_tokens=True: "hello world"
+
+    # 2 generation steps, each carrying (n_layers + 1) = 2 hidden tensors
+    step = (torch.randn(1, 3, 4), torch.randn(1, 3, 4))
+    out = MagicMock()
+    out.hidden_states = (step, step)
+    out.sequences = torch.zeros(1, 5, dtype=torch.long)
+    model.generate.return_value = out
+
+    generate_with_hidden_states(
+        model, tok, "prompt", max_new_tokens=2, temperature=0.7,
+        repetition_penalty=1.3,
+    )
+    assert model.generate.call_args.kwargs["repetition_penalty"] == 1.3
+
+
+def test_extract_traces_batch_generates_all_in_one_call():
+    """extract_traces_batch batches every prompt through a single vllm_generate."""
+    from manyagents.inference import extract_traces_batch
+
+    model = MagicMock()
+    tokenizer = _mock_tokenizer()
+    prompts = ["Q1?", "Q2?", "Q3?"]
+    tasks = [TaskInfo("gsm8k", f"t{i}", p) for i, p in enumerate(prompts)]
+
+    calls = {}
+
+    def _fake_vllm_generate(formatted, **kwargs):
+        calls["formatted"] = formatted
+        calls["overrides"] = kwargs.get("sampling_overrides")
+        return [{
+            "text": f"Step.\nThe answer is {i}.",
+            "prompt_token_ids": [0, 1], "completion_token_ids": [2, 3, 4],
+            "input_length": 2, "n_new_tokens": 3, "generation_time_ms": 10,
+            "finish_reason": "stop",
+        } for i in range(len(formatted))]
+
+    def _fake_forward(model, full_ids, *, input_length, layers=None):
+        return {
+            "token_hidden_states": np.random.randn(3, 1, 8).astype(np.float32),
+            "input_length": input_length, "n_new_tokens": 3,
+            "generation_time_ms": 5, "layers_captured": [-1],
+        }
+
+    with patch("manyagents.inference.vllm_generate", _fake_vllm_generate), \
+         patch("manyagents.inference.forward_hidden_states", _fake_forward):
+        out = extract_traces_batch(
+            model, tokenizer, prompts, tasks,
+            vllm_engine=MagicMock(), model_name="m", model_path="/m",
+            repetition_penalty=1.3, layers=[-1],
+        )
+
+    assert len(calls["formatted"]) == 3            # one batched call, all prompts
+    assert calls["overrides"] == {"repetition_penalty": 1.3}
+    assert len(out) == 3                           # aligned with inputs
+    for trace, hs in out:
+        assert isinstance(trace, ReasoningTrace)
+        assert hs["token_level"].dtype == np.float16
+        assert trace.model.generation_config["repetition_penalty"] == 1.3
+
+
+def test_extract_traces_batch_guards():
+    """extract_traces_batch validates its inputs and short-circuits empties."""
+    from manyagents.inference import extract_traces_batch
+
+    tok = _mock_tokenizer()
+    import pytest
+    with pytest.raises(ValueError, match="requires `vllm_engine`"):
+        extract_traces_batch(MagicMock(), tok, ["q"], [TaskInfo("d", "t", "q")],
+                             vllm_engine=None, model_name="m", model_path="/m")
+    with pytest.raises(ValueError, match="same length"):
+        extract_traces_batch(MagicMock(), tok, ["q1", "q2"], [TaskInfo("d", "t", "q1")],
+                             vllm_engine=MagicMock(), model_name="m", model_path="/m")
+    # empty input is a no-op, not an engine call
+    assert extract_traces_batch(MagicMock(), tok, [], [], vllm_engine=MagicMock(),
+                                model_name="m", model_path="/m") == []
+
+
 # ---------------------------------------------------------------------------
 # Segmentation tests
 # ---------------------------------------------------------------------------

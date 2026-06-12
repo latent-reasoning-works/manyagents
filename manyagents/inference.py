@@ -14,10 +14,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
+    from typing import Dict, List, Optional
 
     import torch.nn as nn
 
-    from .schemas.reasoning import ModelBackend, ReasoningTrace, TaskInfo
+    from manyagents.schemas.reasoning import ModelBackend, ReasoningTrace, TaskInfo
 
 log = logging.getLogger(__name__)
 
@@ -198,11 +199,19 @@ def load_model(
     device_map: str = "auto",
     dtype=None,
     trust_remote_code: bool = True,
+    attn_implementation: str | None = None,
 ):
     """Load a model and tokenizer via ``HFTrainerModule``.
 
+    Args:
+        attn_implementation: forwarded to ``HFTrainerConfig`` (e.g. ``"eager"``,
+            ``"sdpa"``). On MPS, ``"eager"`` avoids SDPA NaN instabilities seen
+            with long-context generation.
+
     Returns ``(network, tokenizer, hf_module)`` where *network* is the
-    underlying ``nn.Module`` ready for inference.
+    underlying ``nn.Module`` ready for inference. ``attn_implementation``
+    (e.g. ``"sdpa"``, ``"eager"``, ``"flash_attention_2"``) is forwarded to
+    ``HFTrainerConfig`` when set; ``None`` leaves the HF default.
     """
     import torch
     from manylatents.lightning.hf_trainer import HFTrainerConfig, HFTrainerModule
@@ -210,12 +219,16 @@ def load_model(
     if dtype is None:
         dtype = torch.bfloat16
 
-    config = HFTrainerConfig(
+    cfg_kwargs = dict(
         model_name_or_path=model_path,
         torch_dtype=dtype,
         trust_remote_code=trust_remote_code,
         device_map=device_map,
+        attn_implementation=attn_implementation,
     )
+    if attn_implementation is not None:
+        cfg_kwargs["attn_implementation"] = attn_implementation
+    config = HFTrainerConfig(**cfg_kwargs)
     hf_module = HFTrainerModule(config)
     hf_module.configure_model()
     return hf_module.network, hf_module.tokenizer, hf_module
@@ -389,8 +402,13 @@ def generate_with_hidden_states(
     max_new_tokens: int = 512,
     temperature: float = 0.7,
     layers: list[int] | None = None,
+    repetition_penalty: float = 1.0,
 ) -> dict:
     """Generate text and capture hidden states via HF ``output_hidden_states=True``.
+
+    ``repetition_penalty`` maps onto HF's ``generate`` kwarg of the same name
+    (1.0 = off); > 1.0 discourages token repetition, suppressing degenerate
+    loops/collapse so trajectory geometry reflects content, not a stuck decoder.
 
     Returns::
 
@@ -410,9 +428,10 @@ def generate_with_hidden_states(
     input_length = input_ids.shape[1]
 
     n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
+    d_model = model.config.hidden_size
 
     layer_indices = (
-        [layer % n_layers for layer in layers] if layers is not None else list(range(n_layers))
+        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
     )
 
     do_sample = temperature > 0
@@ -424,6 +443,7 @@ def generate_with_hidden_states(
             max_new_tokens=max_new_tokens,
             temperature=temperature if do_sample else None,
             do_sample=do_sample,
+            repetition_penalty=repetition_penalty,
             pad_token_id=tokenizer.eos_token_id,
             output_hidden_states=True,
             return_dict_in_generate=True,
@@ -572,12 +592,36 @@ def vllm_generate(
     return results
 
 
+def _final_norm_module(model: "nn.Module"):
+    """Locate a causal LM's final pre-readout norm across common HF families.
+
+    Covers the base-attribute and norm-attribute names used by Llama/Qwen/Gemma
+    (``.model.norm``), GPT-2 (``.transformer.ln_f``), GPT-NeoX/Pythia
+    (``.gpt_neox.final_layer_norm``), and MPT (``.transformer.norm_f``).
+    """
+    base = (
+        getattr(model, "model", None)
+        or getattr(model, "transformer", None)
+        or getattr(model, "gpt_neox", None)
+        or model
+    )
+    for attr in ("norm", "ln_f", "final_layer_norm", "final_layernorm", "norm_f"):
+        mod = getattr(base, attr, None)
+        if mod is not None:
+            return mod
+    raise ValueError(
+        "could not locate the final norm module; pass a model whose base exposes "
+        "`.norm`/`.ln_f`/`.final_layer_norm`/`.norm_f`"
+    )
+
+
 def forward_hidden_states(
     model: "nn.Module",
     input_ids: "list[int]",
     *,
     input_length: int,
     layers: "list[int] | None" = None,
+    capture_prenorm: bool = False,
 ) -> dict:
     """Teacher-forced forward pass over a fixed sequence; harvest per-token states.
 
@@ -592,11 +636,17 @@ def forward_hidden_states(
         input_ids: Full sequence — ``prompt_token_ids + completion_token_ids``.
         input_length: Length of the prompt prefix (``len(prompt_token_ids)``).
         layers: Layer indices to keep (negatives allowed); None = all layers.
+        capture_prenorm: also capture the final decoder block's output BEFORE the
+            model's final RMSNorm/LayerNorm. ``output_hidden_states[-1]`` is
+            post-norm (it equals ``last_hidden_state``); the pre-norm residual
+            stream is only reachable via a hook. The final norm is a readout
+            transform, so pre-norm states reflect the last *computational* state.
 
     Returns:
         Same shape contract as ``generate_with_hidden_states`` minus ``text``:
         ``{token_hidden_states (n_new, n_selected, d_model), input_length,
-        n_new_tokens, generation_time_ms, layers_captured}`` (float32).
+        n_new_tokens, generation_time_ms, layers_captured}`` (float32). When
+        ``capture_prenorm`` is set, also ``prenorm_hidden_states (n_new, d_model)``.
     """
     import torch
 
@@ -604,14 +654,37 @@ def forward_hidden_states(
     total = ids.shape[1]
     n_new = total - input_length
 
+    # The state that predicts completion token s lives at position
+    # (input_length - 1 + s), so the prefix must contribute at least one
+    # position. input_length == 0 would make both the token loop (range starting
+    # at -1, which wraps to the last position) and the prenorm slice
+    # (`[-1:total-1]`, empty) produce wrong, mutually-inconsistent shapes.
+    if not 1 <= input_length <= total:
+        raise ValueError(
+            f"input_length must be in [1, {total}] (got {input_length}); it is "
+            "the prompt-prefix length that supplies the predict-next position."
+        )
+
     n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
     layer_indices = (
-        [layer % n_layers for layer in layers] if layers is not None else list(range(n_layers))
+        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
     )
 
+    prenorm_buf: dict = {}
+    handle = None
+    if capture_prenorm:
+        norm = _final_norm_module(model)
+        def _pre_hook(_module, args):  # args[0] = residual stream entering the norm
+            prenorm_buf["x"] = args[0].detach()
+        handle = norm.register_forward_pre_hook(_pre_hook)
+
     start = time.time()
-    with torch.no_grad():
-        outputs = model(ids, output_hidden_states=True, use_cache=False)
+    try:
+        with torch.no_grad():
+            outputs = model(ids, output_hidden_states=True, use_cache=False)
+    finally:
+        if handle is not None:
+            handle.remove()
     forward_time_ms = int((time.time() - start) * 1000)
 
     # Position (input_length - 1 + s) is the state that predicts completion
@@ -630,13 +703,19 @@ def forward_hidden_states(
         d_model = model.config.hidden_size
         token_hidden_states = np.empty((0, len(layer_indices), d_model), dtype=np.float32)
 
-    return {
+    result = {
         "token_hidden_states": token_hidden_states.astype(np.float32),
         "input_length": int(input_length),
         "n_new_tokens": int(n_new),
         "generation_time_ms": forward_time_ms,
         "layers_captured": layer_indices,
     }
+    if capture_prenorm:
+        if "x" not in prenorm_buf:
+            raise RuntimeError("pre-norm hook did not fire; check _final_norm_module")
+        pre = prenorm_buf["x"][0, input_length - 1:total - 1, :].cpu().float().numpy()
+        result["prenorm_hidden_states"] = pre.astype(np.float32)  # (n_new, d_model)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -872,6 +951,7 @@ def segment_hybrid(
             prominence_factor=prominence_factor,
         )
 
+    think_content = match.group(1).strip()
     after_think = text[match.end():].strip()
 
     # Tokenize full text to get token ranges
@@ -1109,9 +1189,11 @@ def extract_trace(
     temperature: float = 0.7,
     top_p: float = 1.0,
     top_k: int = -1,
+    repetition_penalty: float = 1.0,
     layers: list[int] | None = None,
     step_delimiter: str = "\n",
     segmentation: str = "delimiter",
+    state_dtype: str = "float16",
 ) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
     """Full trace extraction pipeline: prompt -> generate -> segment -> pool -> trace.
 
@@ -1136,12 +1218,15 @@ def extract_trace(
 
     formatted = build_prompt(tokenizer, prompt, system_prompt)
     gen_config: dict = {"max_new_tokens": max_new_tokens, "temperature": temperature}
+    if repetition_penalty != 1.0:
+        gen_config["repetition_penalty"] = repetition_penalty
 
     if backend == "hf":
         gen = generate_with_hidden_states(
             model, tokenizer, formatted,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
+            repetition_penalty=repetition_penalty,
             layers=layers,
         )
         trace_backend = ModelBackend.LOCAL
@@ -1156,6 +1241,10 @@ def extract_trace(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            sampling_overrides=(
+                {"repetition_penalty": repetition_penalty}
+                if repetition_penalty != 1.0 else None
+            ),
         )[0]
         full_ids = out["prompt_token_ids"] + out["completion_token_ids"]
         hs = forward_hidden_states(
@@ -1168,6 +1257,25 @@ def extract_trace(
     else:
         raise ValueError(f"Unknown backend '{backend}'. Choose 'hf' or 'vllm'.")
 
+    return _assemble_trace(
+        gen, tokenizer, task, model_name=model_name, model_path=model_path,
+        gen_config=gen_config, trace_backend=trace_backend,
+        segmentation=segmentation, step_delimiter=step_delimiter,
+        state_dtype=state_dtype,
+    )
+
+
+def _assemble_trace(
+    gen: dict, tokenizer, task: "TaskInfo", *,
+    model_name: str, model_path: str, gen_config: dict, trace_backend,
+    segmentation: str = "delimiter", step_delimiter: str = "\n",
+    state_dtype: str = "float16",
+) -> tuple["ReasoningTrace", dict[str, np.ndarray]]:
+    """Segment -> pool -> build trace from a ``gen`` dict (text + token states).
+
+    Shared post-generation tail for ``extract_trace`` and ``extract_traces_batch``
+    so both backends/paths build identical traces from the same ``gen`` contract.
+    """
     step_defs = segment(
         gen["text"],
         tokenizer,
@@ -1196,9 +1304,90 @@ def extract_trace(
         backend=trace_backend,
     )
 
+    # NOTE: float16 (the historical default) overflows to +/-inf on the few
+    # "massive activation" channels (magnitudes ~1e4-1e5 > float16 max 65504).
+    # Pass state_dtype="float32" for faithful geometry on raw residual-stream
+    # layers; see Sun et al. 2024 (arXiv:2402.17762).
+    dt = getattr(np, state_dtype)
     hidden_states = {
-        "pooled_steps": pooled.astype(np.float16),
-        "token_level": gen["token_hidden_states"].astype(np.float16),
+        "pooled_steps": pooled.astype(dt),
+        "token_level": gen["token_hidden_states"].astype(dt),
     }
 
     return trace, hidden_states
+
+
+def extract_traces_batch(
+    model: "nn.Module",
+    tokenizer,
+    prompts: "list[str]",
+    tasks: "list[TaskInfo]",
+    *,
+    vllm_engine,
+    model_name: str,
+    model_path: str,
+    system_prompt: str | None = None,
+    max_new_tokens: int = 512,
+    temperature: float = 0.7,
+    top_p: float = 1.0,
+    top_k: int = -1,
+    repetition_penalty: float = 1.0,
+    layers: list[int] | None = None,
+    step_delimiter: str = "\n",
+    segmentation: str = "delimiter",
+    state_dtype: str = "float16",
+) -> "list[tuple[ReasoningTrace, dict[str, np.ndarray]]]":
+    """Batched ``extract_trace`` (vLLM only): generate ALL prompts in one call.
+
+    vLLM continuously batches the whole prompt list in a single ``engine.generate``,
+    which is far faster than looping ``extract_trace`` one prompt at a time (batch
+    size 1 wastes vLLM's scheduler). Hidden states are then recovered per sequence
+    by a teacher-forced HF forward pass — identical to ``extract_trace(backend=
+    'vllm')`` for each item, just with generation amortized across the batch.
+
+    Returns a list of ``(trace, hidden_states)`` aligned with ``prompts``/``tasks``.
+    """
+    from manyagents.schemas.reasoning import ModelBackend
+
+    if vllm_engine is None:
+        raise ValueError("extract_traces_batch requires `vllm_engine`.")
+    if len(prompts) != len(tasks):
+        raise ValueError(
+            f"prompts ({len(prompts)}) and tasks ({len(tasks)}) must be the same length.")
+    if not prompts:
+        return []
+
+    formatted = [build_prompt(tokenizer, p, system_prompt) for p in prompts]
+    outs = vllm_generate(
+        formatted,
+        engine=vllm_engine,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        sampling_overrides=(
+            {"repetition_penalty": repetition_penalty}
+            if repetition_penalty != 1.0 else None
+        ),
+    )
+
+    gen_config: dict = {"max_new_tokens": max_new_tokens, "temperature": temperature,
+                        "top_p": top_p, "top_k": top_k}
+    if repetition_penalty != 1.0:
+        gen_config["repetition_penalty"] = repetition_penalty
+
+    results = []
+    for out, task in zip(outs, tasks):
+        full_ids = out["prompt_token_ids"] + out["completion_token_ids"]
+        hs = forward_hidden_states(
+            model, full_ids, input_length=out["input_length"], layers=layers,
+        )
+        gen = {**hs, "text": out["text"]}
+        gen["generation_time_ms"] = out["generation_time_ms"] + hs["generation_time_ms"]
+        results.append(_assemble_trace(
+            gen, tokenizer, task, model_name=model_name, model_path=model_path,
+            gen_config=dict(gen_config), trace_backend=ModelBackend.VLLM,
+            segmentation=segmentation, step_delimiter=step_delimiter,
+            state_dtype=state_dtype,
+        ))
+    return results
