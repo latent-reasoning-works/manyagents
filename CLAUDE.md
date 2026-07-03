@@ -2,6 +2,8 @@
 
 Multi-agent orchestration for scientific workflows. Hydra + pydantic + uv.
 
+**Ecosystem map** (canonical, repo-independent): the LRW handbook — [`concepts-and-map.md`](https://github.com/latent-reasoning-works/handbook/blob/main/0-start-here/concepts-and-map.md) (frame) and [`1-architecture/ecosystem.md`](https://github.com/latent-reasoning-works/handbook/blob/main/1-architecture/ecosystem.md) (as-built state). This file owns manyAgents' internals only.
+
 ## What belongs here
 
 Adapters, orchestration, LLM metrics, reasoning trace capture. Anything that coordinates external tools or models.
@@ -133,7 +135,7 @@ Get an adapter by name via the registry dict: `from manyagents.adapters import A
 |------|-------------|
 | `main.py` | Hydra CLI entry point |
 | `experiment.py` | `run_experiment()` — prompt dispatch, metric extraction, aggregation |
-| `inference.py` | Model loading, prompt building, generation (plain functions, no classes) |
+| `inference.py` | Load-bearing measurement core: model loading, generation, per-token/per-layer hidden-state capture (`generate_with_hidden_states`, `forward_hidden_states` incl. pre-norm residual-stream capture), `segment_by_velocity`, `extract_trace`. Plain functions, no classes |
 | `config_utils.py` | `load_manylatents_experiment()`, `deep_merge()`, `build_hydra_overrides()` |
 | `types.py` | `TaskConfig`, `AdapterResult`, `EmbeddingOutputs`, validation functions |
 | `adapters/base.py` | `AgentAdapter` ABC, result helpers |
@@ -157,6 +159,7 @@ Get an adapter by name via the registry dict: `from manyagents.adapters import A
 - **Schema-on-read** — configs are dicts, not dataclasses. Validate at boundaries only.
 - **`inference.py` is functional** — plain functions, module-level model cache, no classes.
 - **`EmbeddingOutputs` is a deprecated alias** — it's just `dict[str, Any]` now.
+- **Hidden-state capture defaults to `state_dtype="float16"`** — which overflows massive-activation channels (Sun et al. 2024). For faithful trajectory geometry (the Arm-2 substrate) call `inference.extract_trace(state_dtype="float32")` directly; the Hydra/adapter path does **not** yet thread `state_dtype` through `HFAdapter`/`VLLMAdapter`, so it can only emit float16. Threading it through is an Arm-2 pre-req.
 
 ## Tests
 
