@@ -718,6 +718,159 @@ def forward_hidden_states(
     return result
 
 
+def forward_recurrent_states(
+    model: "nn.Module",
+    input_ids: "list[int]",
+    *,
+    input_length: int,
+    step_module: str,
+    forward_kwargs: "dict | None" = None,
+) -> dict:
+    """Teacher-forced forward capturing per-RECURRENCE-STEP states at each position.
+
+    For recurrent-depth / weight-tied models (Huginn/Raven, Ouro), the interesting
+    depth axis is not ``output_hidden_states`` layers but the successive firings of
+    the shared recurrent block within ONE forward pass. This hooks ``step_module``
+    (dotted path, e.g. the recurrent core) and records its output every time it
+    fires; firing i = recurrence step i. Works unchanged on a non-recurrent model
+    (the module fires once -> n_steps == 1).
+
+    Args:
+        model: HF causal LM (or any module with a ``device`` attribute).
+        input_ids: Full token sequence (prompt + completion).
+        input_length: Prompt-prefix length; states are returned for the
+            completion-aligned positions (same predict-next contract as
+            ``forward_hidden_states``: position ``input_length - 1 + s`` predicts
+            completion token ``s``).
+        step_module: Dotted module path resolved via ``model.get_submodule`` —
+            the block whose successive firings define the recurrence axis.
+        forward_kwargs: Extra kwargs threaded into ``model(...)`` — e.g. the
+            model-specific knob fixing the number of recurrence steps
+            (Huginn: ``num_steps``).
+
+    Returns:
+        ``{step_hidden_states (n_new, n_steps, d_model) float32, n_steps,
+        input_length, n_new_tokens, forward_time_ms, step_module}``.
+    """
+    import torch
+
+    ids = torch.tensor([list(input_ids)], device=model.device)
+    total = ids.shape[1]
+    n_new = total - input_length
+    if not 1 <= input_length <= total:
+        raise ValueError(
+            f"input_length must be in [1, {total}] (got {input_length}); it is "
+            "the prompt-prefix length that supplies the predict-next position."
+        )
+
+    mod = model.get_submodule(step_module)
+    firings: list = []
+
+    def _hook(_m, _args, output):
+        out = output[0] if isinstance(output, tuple) else output
+        firings.append(out[0].detach().float().cpu())  # (T, d)
+
+    handle = mod.register_forward_hook(_hook)
+    start = time.time()
+    try:
+        with torch.no_grad():
+            model(ids, use_cache=False, **(forward_kwargs or {}))
+    finally:
+        handle.remove()
+    forward_time_ms = int((time.time() - start) * 1000)
+
+    if not firings:
+        raise RuntimeError(f"step_module {step_module!r} did not fire during forward")
+    steps = torch.stack(firings)  # (n_steps, T, d)
+    # completion-aligned slice, then (position, step, d) to mirror token_hidden_states
+    sl = steps[:, input_length - 1:total - 1, :].permute(1, 0, 2).numpy()
+    return {
+        "step_hidden_states": sl.astype(np.float32),
+        "n_steps": int(len(firings)),
+        "input_length": int(input_length),
+        "n_new_tokens": int(n_new),
+        "forward_time_ms": forward_time_ms,
+        "step_module": step_module,
+    }
+
+
+def forward_hidden_states_batched(
+    model: "nn.Module",
+    input_ids_batch: "list[list[int]]",
+    *,
+    input_lengths: "list[int]",
+    layers: "list[int] | None" = None,
+) -> "list[dict]":
+    """Batched ``forward_hidden_states``: one padded forward for many sequences.
+
+    Right-pads to the batch max length with an attention mask; causal masking
+    guarantees each sequence's real positions are unaffected by its padding, so
+    per-sequence results match single-sequence ``forward_hidden_states`` exactly
+    (same predict-next contract, same ``token_hidden_states`` shape). Use for
+    throughput-bound panels (the single-sequence loop leaves GPUs mostly idle).
+
+    Returns one result dict per input sequence, in order (``generation_time_ms``
+    reports the SHARED batch forward time in every dict).
+    """
+    import torch
+
+    if len(input_ids_batch) != len(input_lengths):
+        raise ValueError("input_ids_batch and input_lengths must have equal length")
+    totals = [len(s) for s in input_ids_batch]
+    for i, (t, il) in enumerate(zip(totals, input_lengths)):
+        if not 1 <= il <= t:
+            raise ValueError(
+                f"input_lengths[{i}] must be in [1, {t}] (got {il})")
+
+    n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
+    layer_indices = (
+        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
+    )
+
+    max_len = max(totals)
+    pad_id = getattr(getattr(model, "config", None), "pad_token_id", None) or 0
+    ids = torch.full((len(totals), max_len), pad_id, dtype=torch.long, device=model.device)
+    mask = torch.zeros((len(totals), max_len), dtype=torch.long, device=model.device)
+    for b, seq in enumerate(input_ids_batch):
+        ids[b, : totals[b]] = torch.tensor(seq, device=model.device)
+        mask[b, : totals[b]] = 1
+
+    start = time.time()
+    with torch.no_grad():
+        outputs = model(
+            ids, attention_mask=mask, output_hidden_states=True, use_cache=False
+        )
+    forward_time_ms = int((time.time() - start) * 1000)
+
+    results = []
+    for b, (total, input_length) in enumerate(zip(totals, input_lengths)):
+        rows = []
+        for pos in range(input_length - 1, total - 1):
+            rows.append(
+                np.stack(
+                    [
+                        outputs.hidden_states[li][b, pos, :].cpu().float().numpy()
+                        for li in layer_indices
+                    ]
+                )
+            )
+        if rows:
+            ths = np.stack(rows)
+        else:
+            d_model = model.config.hidden_size
+            ths = np.empty((0, len(layer_indices), d_model), dtype=np.float32)
+        results.append(
+            {
+                "token_hidden_states": ths.astype(np.float32),
+                "input_length": int(input_length),
+                "n_new_tokens": int(total - input_length),
+                "generation_time_ms": forward_time_ms,
+                "layers_captured": layer_indices,
+            }
+        )
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Step splitting + pooling
 # ---------------------------------------------------------------------------
