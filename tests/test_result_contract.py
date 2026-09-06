@@ -139,3 +139,30 @@ def test_save_response_returns_readable_path(tmp_path):
     custom = adapter.save_response("Use PCA.", "custom.txt")
     assert custom["raw_response"].name == "custom.txt"
     assert custom["raw_response"].read_text() == "Use PCA."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("as_dict", [False, True], ids=["objects", "dicts"])
+async def test_claude_joins_all_text_blocks(as_dict, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from manyagents.adapters import ClaudeAdapter
+
+    blocks = [
+        {"type": "thinking", "thinking": "Private reasoning"},
+        {"type": "text", "text": "First recommendation: Leiden."},
+        {"type": "thinking", "thinking": "More reasoning"},
+        {"type": "text", "text": "Second recommendation: SLINGSHOT."},
+    ]
+    response = SimpleNamespace(
+        content=blocks if as_dict else [SimpleNamespace(**block) for block in blocks],
+        usage=SimpleNamespace(input_tokens=10, output_tokens=20), stop_reason="end_turn",
+    )
+    client = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(return_value=response)))
+    adapter = ClaudeAdapter()
+    adapter.config.output_base_dir = tmp_path
+    monkeypatch.setattr(adapter, "_get_client", lambda: client)
+    result = await adapter.run({"prompt": "Recommend methods."}, {})
+    assert result["success"] is True
+    assert result["output_files"]["raw_response"].read_text() == (
+        "First recommendation: Leiden.\nSecond recommendation: SLINGSHOT."
+    )

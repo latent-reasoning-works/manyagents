@@ -224,13 +224,13 @@ class ClaudeAdapter(AgentAdapter):
             )
 
         response_time = time.time() - start_time
-        # Extract text from the first text block (thinking blocks may precede it)
-        content = ""
+        # Join text blocks, skipping thinking blocks.
+        text_blocks = []
         for block in response.content:
             btype = block.type if hasattr(block, "type") else block.get("type")
             if btype == "text":
-                content = block.text if hasattr(block, "text") else block["text"]
-                break
+                text_blocks.append(block.text if hasattr(block, "text") else block["text"])
+        content = "\n".join(text_blocks)
         usage = response.usage
         total_tokens = usage.input_tokens + usage.output_tokens
 
