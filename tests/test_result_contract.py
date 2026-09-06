@@ -46,10 +46,10 @@ def test_adapter_result_requires_output_files():
 async def test_compute_adapter_rejected_for_evaluation(adapter_name, monkeypatch, tmp_path, caplog):
     from manyagents.adapters import PlaceholderAdapter
 
-    monkeypatch.setitem(ADAPTER_REGISTRY, "placeholder", PlaceholderAdapter)
     run = AsyncMock(return_value={"success": True, "output_files": {}})
     for name in ["mock", adapter_name]:
-        monkeypatch.setattr(ADAPTER_REGISTRY[name], "run", run)
+        adapter_class = PlaceholderAdapter if name == "placeholder" else ADAPTER_REGISTRY[name]
+        monkeypatch.setattr(adapter_class, "run", run)
     cfg = OmegaConf.create({
         "name": "contract", "output_dir": str(tmp_path), "system_prompt": "",
         "active_agents": ["mock", adapter_name],
@@ -143,7 +143,8 @@ def test_save_response_returns_readable_path(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("as_dict", [False, True], ids=["objects", "dicts"])
-async def test_claude_joins_all_text_blocks(as_dict, tmp_path, monkeypatch):
+@pytest.mark.parametrize("api", ["run", "chat", "agent_loop"])
+async def test_claude_joins_all_text_blocks(as_dict, api, tmp_path, monkeypatch):
     from types import SimpleNamespace
     from manyagents.adapters import ClaudeAdapter
 
@@ -161,16 +162,28 @@ async def test_claude_joins_all_text_blocks(as_dict, tmp_path, monkeypatch):
     adapter = ClaudeAdapter()
     adapter.config.output_base_dir = tmp_path
     monkeypatch.setattr(adapter, "_get_client", lambda: client)
-    result = await adapter.run({"prompt": "Recommend methods."}, {})
-    assert result["success"] is True
-    assert result["output_files"]["raw_response"].read_text() == (
-        "First recommendation: Leiden.\nSecond recommendation: SLINGSHOT."
-    )
+    expected = "First recommendation: Leiden.\nSecond recommendation: SLINGSHOT."
+    if api == "run":
+        result = await adapter.run({"prompt": "Recommend methods."}, {})
+        assert result["success"] is True
+        assert result["output_files"]["raw_response"].read_text() == expected
+    elif api == "chat":
+        result = await adapter.chat([{"role": "user", "content": "Recommend methods."}])
+        assert result["content"] == expected
+        assert result["message"]["content"] == expected
+    else:
+        from manyagents.agent_loop import run_agent_loop
+
+        monkeypatch.setattr(ClaudeAdapter, "_get_client", lambda self: client)
+        result = await run_agent_loop("Recommend methods.", agent="claude")
+        assert result.answer == expected
+        assert result.messages[-1]["content"] == expected
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("task_key", ["prompt", "task"])
-async def test_biomni_accepts_prompt_alias_and_emits_raw_response(task_key, tmp_path, monkeypatch):
+@pytest.mark.parametrize("return_shape", ["tuple", "string"])
+async def test_biomni_accepts_prompt_alias_and_emits_raw_response(task_key, return_shape, tmp_path, monkeypatch):
     import sys
     from pathlib import Path
     from types import ModuleType
@@ -178,7 +191,10 @@ async def test_biomni_accepts_prompt_alias_and_emits_raw_response(task_key, tmp_
     from manyagents.adapters.biomni_adapter import BiomniAdapter
 
     agent = Mock()
-    agent.go.return_value = "Use Leiden."
+    content = "No method is appropriate."
+    agent.go.return_value = (
+        (["User: should I use Leiden or UMAP?"], content) if return_shape == "tuple" else content
+    )
     biomni = ModuleType("biomni")
     agent_module = ModuleType("biomni.agent")
     agent_module.A1 = Mock(return_value=agent)
@@ -194,5 +210,71 @@ async def test_biomni_accepts_prompt_alias_and_emits_raw_response(task_key, tmp_
     result = await adapter.run(task_config, {})
     assert result["success"] is True
     agent.go.assert_called_once_with("Analyze these cells.")
-    assert result["output_files"]["raw_response"].read_text() == "Use Leiden."
+    assert result["output_files"]["raw_response"].read_text() == content
+    from manyagents.experiment import _run_agent
+
+    evaluated = await _run_agent(OmegaConf.create({"adapter": "biomni", "config": {}}),
+                                 "should I use Leiden or UMAP?", "")
+    assert evaluated["success"] is True
+    assert evaluated["extracted_methods"] == []
     assert "prompt" in config
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [None, {}, [], "", " "])
+@pytest.mark.parametrize("as_tuple", [False, True])
+async def test_biomni_rejects_invalid_final_content(value, as_tuple, monkeypatch, tmp_path):
+    import sys
+    from types import ModuleType
+    from unittest.mock import Mock
+    from manyagents.adapters.biomni_adapter import BiomniAdapter
+
+    agent = Mock()
+    agent.go.return_value = (["User: Use Leiden?"], value) if as_tuple else value
+    module = ModuleType("biomni.agent")
+    module.A1 = Mock(return_value=agent)
+    monkeypatch.setitem(sys.modules, "biomni.agent", module)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    adapter = BiomniAdapter()
+    adapter.config.output_base_dir = tmp_path
+    result = await adapter.run({"prompt": "Use Leiden?"}, {})
+    assert result["success"] is False
+    assert "final content" in result["summary"]
+    assert "raw_response" not in result["output_files"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_adapter_rejected_before_execution(monkeypatch, tmp_path, caplog):
+    run = AsyncMock(return_value={
+        "success": True, "summary": "Done", "output_files": {"raw_response": "Use PCA."},
+    })
+    monkeypatch.setattr(ADAPTER_REGISTRY["mock"], "run", run)
+    cfg = OmegaConf.create({
+        "name": "preflight", "output_dir": str(tmp_path), "system_prompt": "",
+        "active_agents": ["valid", "typo"],
+        "agents": {"valid": {"adapter": "mock", "config": {}},
+                   "typo": {"adapter": "unresolved", "config": {}}},
+        "prompts": {"test": {"text": "Recommend methods."}},
+    })
+    with pytest.raises(SystemExit) as exc:
+        await run_experiment(cfg)
+    assert exc.value.code == 1
+    assert "Unknown adapter: unresolved" in caplog.text
+    run.assert_not_awaited()
+    assert not (tmp_path / "results.json").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", [
+    {"success": "False"}, {"success": 1}, {"summary": None}, {"output_files": []},
+])
+async def test_evaluation_validates_consumed_adapter_result(invalid, monkeypatch):
+    from manyagents.experiment import _run_agent
+
+    result = {"success": True, "summary": "Done", "output_files": {"raw_response": "Use Leiden."}}
+    result.update(invalid)
+    monkeypatch.setattr(ADAPTER_REGISTRY["mock"], "run", AsyncMock(return_value=result))
+    evaluated = await _run_agent(OmegaConf.create({"adapter": "mock", "config": {}}), "prompt", "")
+    assert evaluated["success"] is False
+    assert "mock" in evaluated["error"]
+    assert next(iter(invalid)) in evaluated["error"]

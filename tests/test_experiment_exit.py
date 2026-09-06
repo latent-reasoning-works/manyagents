@@ -195,6 +195,7 @@ def trace_experiment(tmp_path, monkeypatch):
 @pytest.mark.parametrize("failure", [
     "adapter_failure", "missing_trace", "corrupt_trace", "persist_error", "adapter_error",
     "missing_tensors", "empty_tensors", "zero_size_tensors", "corrupt_tensors", "zero_tasks",
+    "string_tensors", "nan_tensors", "inf_tensors", "integer_tensors", "scalar_tensors",
 ])
 async def test_trace_extraction_zero_traces_fails(failure, trace_experiment, monkeypatch, caplog):
     from unittest.mock import Mock
@@ -204,7 +205,7 @@ async def test_trace_extraction_zero_traces_fails(failure, trace_experiment, mon
     cfg, tasks, trace_path = trace_experiment
     result = {"success": True, "summary": "Done", "output_files": {"trace": trace_path}}
     if failure == "adapter_failure":
-        result = {"success": False, "summary": "Simulated failure"}
+        result = {"success": False, "summary": "Simulated failure", "output_files": {}}
     elif failure == "missing_trace":
         result["output_files"] = {}
     elif failure == "corrupt_trace":
@@ -219,6 +220,16 @@ async def test_trace_extraction_zero_traces_fails(failure, trace_experiment, mon
                 np.savez(tensors_path)
             elif failure == "zero_size_tensors":
                 np.savez(tensors_path, steps=np.empty((0, 2)))
+            elif failure == "string_tensors":
+                np.savez(tensors_path, error=np.array("capture failed"))
+            elif failure == "nan_tensors":
+                np.savez(tensors_path, steps=np.full((2, 3), np.nan))
+            elif failure == "inf_tensors":
+                np.savez(tensors_path, steps=np.full((2, 3), np.inf))
+            elif failure == "integer_tensors":
+                np.savez(tensors_path, steps=np.ones((2, 3), dtype=int))
+            elif failure == "scalar_tensors":
+                np.savez(tensors_path, error=np.array(1.0))
             else:
                 tensors_path.write_text("invalid npz")
             result["output_files"]["hidden_states"] = tensors_path
@@ -254,8 +265,8 @@ async def test_trace_extraction_counts_only_new_persisted_traces(with_tensors, t
         np.savez(tensors_path, steps=np.ones((2, 3)))
         output_files["hidden_states"] = tensors_path
     run = AsyncMock(side_effect=[
-        {"success": True, "output_files": output_files},
-        {"success": False, "summary": "Simulated failure"},
+        {"success": True, "summary": "Done", "output_files": output_files},
+        {"success": False, "summary": "Simulated failure", "output_files": {}},
     ])
     monkeypatch.setattr(MockAdapter, "run", run)
     summary = Mock(return_value={"total_traces": 99})
@@ -270,3 +281,35 @@ async def test_trace_extraction_counts_only_new_persisted_traces(with_tensors, t
     assert len(stored) == 2
     if with_tensors:
         np.testing.assert_array_equal(stored.load_tensors("new_trace")["steps"], np.ones((2, 3)))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", [
+    {"success": "False"}, {"success": 1}, {"summary": None}, {"output_files": []},
+])
+async def test_trace_extraction_validates_consumed_result(invalid, trace_experiment, monkeypatch, caplog):
+    from manyagents.schemas.reasoning import TraceStore
+
+    cfg, tasks, trace_path = trace_experiment
+    result = {"success": True, "summary": "Done", "output_files": {"trace": trace_path}}
+    result.update(invalid)
+    monkeypatch.setattr(MockAdapter, "run", AsyncMock(return_value=result))
+    with pytest.raises(SystemExit) as exc:
+        await run_experiment(cfg)
+    assert exc.value.code == 1
+    assert next(iter(invalid)) in caplog.text
+    assert len(TraceStore(trace_path.parent / "traces", mode="r")) == 1
+
+
+def test_jaccard_pair_ids_do_not_collide():
+    from itertools import combinations
+    from manyagents.metrics.llm import compute_pairwise_jaccard
+
+    methods = {"a": {"leiden"}, "b_vs_c": {"leiden"}, "a_vs_b": {"pca"}, "c": {"umap"}}
+    result = compute_pairwise_jaccard(methods)
+    assert len(result["pairwise"]) == 6
+    assert result["mean"] == pytest.approx(1 / 6)
+    assert result["min"] == 0.0
+    assert result["max"] == 1.0
+    saved = json.loads(json.dumps(result))
+    assert {tuple(json.loads(key)) for key in saved["pairwise"]} == set(combinations(methods, 2))
