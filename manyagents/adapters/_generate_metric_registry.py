@@ -292,18 +292,23 @@ def scan_algorithm_configs(algorithms_dir: Path, source_label: str = "manylatent
     return registry
 
 
-def generate_metric_registry(output_path: Path, force: bool = False) -> Dict[str, Any]:
+def generate_metric_registry(output_path: Path | None = None, force: bool = False) -> Dict[str, Any]:
     """
-    Generate unified manyLatents registry (metrics + algorithms) JSON file.
+    Build the unified registry in memory, optionally persisting a JSON cache.
 
     Args:
-        output_path: Path where registry JSON should be written
+        output_path: Explicit cache path; None performs no filesystem writes
         force: If True, regenerate even if version matches
 
     Returns:
-        Registry data (also written to output_path)
+        Registry data, even if an optional cache write fails
     """
-    import manylatents
+    try:
+        import manylatents
+    except ImportError as e:
+        raise ImportError(
+            "Metric discovery requires manylatents. Run 'uv sync --extra traces'."
+        ) from e
     from importlib.metadata import version
 
     try:
@@ -314,7 +319,7 @@ def generate_metric_registry(output_path: Path, force: bool = False) -> Dict[str
         logger.warning("Could not determine manylatents version, using 'unknown'")
 
     # Check if regeneration is needed
-    if output_path.exists() and not force:
+    if output_path is not None and output_path.exists() and not force:
         try:
             with open(output_path) as f:
                 existing_registry = json.load(f)
@@ -409,12 +414,15 @@ def generate_metric_registry(output_path: Path, force: bool = False) -> Dict[str
         'algorithms': algorithms_registry
     }
 
-    # Ensure output directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write registry
-    with open(output_path, 'w') as f:
-        json.dump(full_registry, f, indent=2, sort_keys=True)
+    if output_path is not None:
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(full_registry, indent=2, sort_keys=True))
+        except OSError:
+            logger.warning(
+                "Could not persist metric registry to %s; using in-memory data",
+                output_path, exc_info=True,
+            )
 
     logger.info(
         f"Generated manyLatents registry: {len(metrics_registry)} metrics, "
@@ -432,8 +440,8 @@ def main():
     parser.add_argument(
         '--output',
         type=Path,
-        default=Path(__file__).parent / 'data' / 'metric_registry.json',
-        help='Output path for registry JSON'
+        default=None,
+        help='Explicit JSON cache path (default: print JSON to stdout)'
     )
     parser.add_argument(
         '--force',
@@ -455,10 +463,10 @@ def main():
 
     try:
         registry = generate_metric_registry(args.output, force=args.force)
-        print(f"✅ Generated registry with {registry['_metadata']['metrics_scanned']} metrics")
-        print(f"   Output: {args.output}")
-        print(f"   Metrics: {registry['_metadata']['metrics_scanned']}, Algorithms: {registry['_metadata']['algorithms_scanned']}")
-        print(f"   Metric groups: {registry['_metadata']['metric_groups']}")
+        if args.output is None:
+            print(json.dumps(registry, indent=2, sort_keys=True))
+        else:
+            print(f"Generated registry with {registry['_metadata']['metrics_scanned']} metrics")
     except Exception as e:
         print(f"❌ Failed to generate registry: {e}")
         raise
