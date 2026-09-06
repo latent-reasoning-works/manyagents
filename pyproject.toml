@@ -49,6 +49,9 @@ managed = true
 testpaths = ["tests", "manyagents"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+markers = [
+    "requires_manylatents: requires the optional manylatents dependency (traces extra)",
+]
 
 [dependency-groups]
 # Synced by default on `uv run`/`uv sync` — this is what the pre-push

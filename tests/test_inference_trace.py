@@ -389,6 +389,7 @@ except ImportError:
 _scipy_required = pytest.mark.skipif(not _has_scipy, reason="scipy required")
 
 
+@pytest.mark.requires_manylatents
 @_scipy_required
 def test_segment_by_velocity_basic():
     """segment_by_velocity finds the cosine-distance spike at a sharp transition.
@@ -433,6 +434,7 @@ def test_segment_by_velocity_short_text():
     assert steps[0]["kind"] == "output"
 
 
+@pytest.mark.requires_manylatents
 @_scipy_required
 def test_segment_hybrid_with_tags():
     """segment_hybrid uses tags for structure + velocity within thinking."""
@@ -451,6 +453,7 @@ def test_segment_hybrid_with_tags():
     assert len(output_steps) >= 1
 
 
+@pytest.mark.requires_manylatents
 @_scipy_required
 def test_segment_hybrid_no_tags_falls_back_to_velocity():
     """segment_hybrid falls back to velocity when no tags present."""

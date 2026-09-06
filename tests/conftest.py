@@ -1,5 +1,7 @@
 """Pytest fixtures and configuration for manyagents golden tests."""
 
+from importlib.util import find_spec
+
 import pytest
 from pathlib import Path
 import numpy as np
@@ -11,6 +13,17 @@ from hydra.core.global_hydra import GlobalHydra
 TEST_DIR = Path(__file__).parent
 CONFIGS_DIR = TEST_DIR / "configs"
 REFERENCE_DIR = TEST_DIR / "reference_vectors"
+
+
+def pytest_collection_modifyitems(items):
+    """Skip only marked tests, before their dependency-using fixtures run."""
+    if find_spec("manylatents") is not None:
+        return
+
+    skip = pytest.mark.skip(reason="requires manylatents; run 'uv sync --extra traces'")
+    for item in items:
+        if item.get_closest_marker("requires_manylatents") is not None:
+            item.add_marker(skip)
 
 
 def discover_test_configs():

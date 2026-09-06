@@ -35,6 +35,7 @@ class TestExecuteCachedBasics:
                 data=data
             )
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_simple_execution(self):
         """Test basic execution with PCA and single metric."""
@@ -62,6 +63,7 @@ class TestExecuteCachedBasics:
         assert 'participation_ratio' in result['scores']
         assert result['scores']['participation_ratio'] is not None
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_multiple_metrics(self):
         """Test execution with multiple cached metrics."""
@@ -91,6 +93,7 @@ class TestExecuteCachedBasics:
 class TestAlgorithmRegistry:
     """Test dynamic algorithm registry integration."""
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_pca_algorithm(self):
         """Test PCA algorithm from registry."""
@@ -108,6 +111,7 @@ class TestAlgorithmRegistry:
         assert result['metadata']['algorithm'] == 'PCA'
         assert result['metadata']['params']['n_components'] == 5
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_umap_algorithm(self):
         """Test UMAP algorithm from registry."""
@@ -126,6 +130,7 @@ class TestAlgorithmRegistry:
         assert result['metadata']['params']['n_components'] == 2
         assert result['metadata']['params']['n_neighbors'] == 10
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_algorithm_defaults_merge(self):
         """Test that algorithm defaults are properly merged with params."""
@@ -145,6 +150,7 @@ class TestAlgorithmRegistry:
         # PCA defaults should be applied (verify via metadata)
         assert result['metadata']['params']['n_components'] == 3
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_invalid_algorithm(self):
         """Test error handling for unknown algorithm."""
@@ -164,6 +170,7 @@ class TestAlgorithmRegistry:
 class TestMetricGroups:
     """Test different metric groups (embedding, module, dataset)."""
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_embedding_metrics(self):
         """Test metrics that operate on embeddings only."""
@@ -183,6 +190,7 @@ class TestMetricGroups:
         assert 'participation_ratio' in result['scores']
         assert 'anisotropy' in result['scores']
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_module_metrics(self):
         """Test metrics that require the algorithm module."""
@@ -200,6 +208,7 @@ class TestMetricGroups:
 
         assert 'connected_components' in result['scores']
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_mixed_metric_groups(self):
         """Test execution with metrics from different groups."""
@@ -223,6 +232,7 @@ class TestMetricGroups:
 class TestMetricParameterization:
     """Test metric parameter overrides in cached mode."""
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_metric_with_overrides(self):
         """Test metric instantiation with parameter overrides."""
@@ -244,6 +254,7 @@ class TestMetricParameterization:
         # Verify the parameter was used (check cached metric)
         assert adapter._metric_cache['local_intrinsic_dimensionality']['params']['k'] == 30
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_global_overrides(self):
         """Test global parameter overrides applied to all metrics."""
@@ -263,6 +274,7 @@ class TestMetricParameterization:
 class TestPerformance:
     """Test performance of cached execution."""
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_execution_speed(self):
         """Verify execute_cached meets <100ms target."""
@@ -296,6 +308,7 @@ class TestPerformance:
         # But cached mode should be significantly faster than full Hydra path
         print(f"\nCached execution time: {elapsed*1000:.2f}ms")
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_repeated_executions(self):
         """Test that cached metrics enable fast repeated execution."""
@@ -328,6 +341,7 @@ class TestPerformance:
 class TestDataShapes:
     """Test various data shapes and sizes."""
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_small_data(self):
         """Test with small dataset."""
@@ -343,6 +357,7 @@ class TestDataShapes:
 
         assert result['embeddings'].shape == (50, 2)
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_large_data(self):
         """Test with larger dataset."""
@@ -358,6 +373,7 @@ class TestDataShapes:
 
         assert result['embeddings'].shape == (1000, 10)
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_high_dimensional_data(self):
         """Test with high-dimensional input."""
@@ -377,6 +393,7 @@ class TestDataShapes:
 class TestMetadata:
     """Test metadata in execution results."""
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_metadata_structure(self):
         """Verify metadata contains expected fields."""
@@ -406,6 +423,7 @@ class TestMetadata:
         assert metadata['cached_execution'] is True
         assert metadata['metrics_computed'] == 1
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_metadata_metrics_count(self):
         """Verify metadata tracks correct number of computed metrics."""
@@ -429,6 +447,7 @@ class TestMetadata:
 class TestErrorHandling:
     """Test error handling in execute_cached."""
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_invalid_params(self):
         """Test handling of invalid algorithm parameters."""
@@ -445,6 +464,7 @@ class TestErrorHandling:
                 data=data
             )
 
+    @pytest.mark.requires_manylatents
     @pytest.mark.asyncio
     async def test_metric_computation_failure(self):
         """Test that metric failures are gracefully handled."""

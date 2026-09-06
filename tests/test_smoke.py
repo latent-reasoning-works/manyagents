@@ -4,15 +4,9 @@ Smoke tests for CI - verify basic functionality works.
 These tests are fast and don't require API keys or GPUs.
 Run with: pytest tests/test_smoke.py -v
 
-NOTE: manylatents tests are skipped in CI until the repo is public.
-TODO: Remove skip markers when manylatents is public.
 """
 
-import os
 import pytest
-
-# Skip manylatents tests in CI (private repo)
-SKIP_MANYLATENTS = os.environ.get("CI") == "true"
 
 
 class TestAdapterImports:
@@ -22,7 +16,7 @@ class TestAdapterImports:
         from manyagents.adapters.base import AgentAdapter
         assert AgentAdapter is not None
 
-    @pytest.mark.skipif(SKIP_MANYLATENTS, reason="manylatents is private")
+    @pytest.mark.requires_manylatents
     def test_import_manylatents(self):
         from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
         assert ManyLatentsAdapter is not None
