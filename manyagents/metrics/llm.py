@@ -1,5 +1,6 @@
 """Metrics computation for pipeline invariance experiment."""
 
+import json
 from itertools import combinations
 from statistics import mean
 from typing import Any, Dict, Set
@@ -29,12 +30,13 @@ def compute_pairwise_jaccard(method_sets: Dict[str, Set[str]]) -> Dict[str, Any]
 
     Returns:
         Dict with 'mean', 'min', 'max', and 'pairwise' values, or None without a pair.
+        Pairwise keys are JSON-encoded [prompt_id, prompt_id] pairs.
     """
     if len(method_sets) < 2:
         return None
 
     pairwise = {
-        f"{p1}_vs_{p2}": compute_jaccard_similarity(method_sets[p1], method_sets[p2])
+        json.dumps([p1, p2]): compute_jaccard_similarity(method_sets[p1], method_sets[p2])
         for p1, p2 in combinations(method_sets.keys(), 2)
     }
     similarities = list(pairwise.values())

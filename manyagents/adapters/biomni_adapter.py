@@ -101,8 +101,16 @@ class BiomniAdapter(AgentAdapter):
                 timeout=timeout
             )
 
+            # A1.go returns (self.log, message.content); only final content is
+            # an answer. The log includes the user prompt and must not be scored.
+            content = result[1] if isinstance(result, tuple) and len(result) == 2 else result
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError(
+                    f"Biomni final content must be nonempty text, got {type(content).__name__}"
+                )
+
             execution_time = time.time() - start_time
-            output_files = self.save_response(str(result), "biomni_output.txt")
+            output_files = self.save_response(content, "biomni_output.txt")
 
             return self.success_response(
                 summary=f"Biomni completed task in {execution_time:.1f}s",

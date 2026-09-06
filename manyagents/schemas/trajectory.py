@@ -41,22 +41,22 @@ class TransformationTrajectory:
     embedding_paths: Optional[list[Path]] = None
 
     @property
-    def deltas(self) -> list[dict[str, float]]:
+    def deltas(self) -> list[dict[str, float | None]]:
         """Compute G-vector deltas between consecutive steps.
 
         Returns:
             List of dicts with metric deltas. Length = len(g_vectors) - 1.
             Each dict has keys: beta_0, beta_1, participation_ratio, local_intrinsic_dim.
+            A delta is None when either measurement is undefined.
         """
         result = []
         for i in range(1, len(self.g_vectors)):
             prev = self.g_vectors[i - 1]
             curr = self.g_vectors[i]
             result.append({
-                "beta_0": curr.beta_0 - prev.beta_0,
-                "beta_1": curr.beta_1 - prev.beta_1,
-                "participation_ratio": curr.participation_ratio - prev.participation_ratio,
-                "local_intrinsic_dim": curr.local_intrinsic_dim - prev.local_intrinsic_dim,
+                name: after - before if before is not None and after is not None else None
+                for name, before in prev.to_dict().items()
+                for after in [getattr(curr, name)]
             })
         return result
 

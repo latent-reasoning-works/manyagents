@@ -27,6 +27,7 @@ ADAPTER_REGISTRY = {
     "vllm": VLLMAdapter,
     "cellforge": CellForgeAdapter,
     "kosmos": KosmosAdapter,
+    "placeholder": PlaceholderAdapter,
 }
 
 # Optional adapters (require additional dependencies)

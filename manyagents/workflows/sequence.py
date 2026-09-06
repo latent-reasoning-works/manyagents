@@ -105,12 +105,18 @@ def compute_gvector(
             # Handle different return types
             if isinstance(result, tuple):
                 # (scalar, per_sample_array) -> take scalar
-                values[metric_name] = float(result[0])
+                value = float(result[0])
             elif isinstance(result, np.ndarray):
                 # Per-sample array -> take mean
-                values[metric_name] = float(np.mean(result))
+                if not result.size or not np.isfinite(result).all():
+                    raise ValueError(f"Metric '{metric_name}' returned an empty or nonfinite array")
+                value = float(np.mean(result))
             else:
-                values[metric_name] = float(result)
+                value = float(result)
+
+            if not np.isfinite(value):
+                raise ValueError(f"Metric '{metric_name}' returned a nonfinite value")
+            values[metric_name] = value
 
             logger.debug(f"  {metric_name} = {values[metric_name]:.4f}")
 
@@ -119,10 +125,10 @@ def compute_gvector(
             raise
 
     return GVector(
-        beta_0=int(values.get("beta_0", 0)),
-        beta_1=int(values.get("beta_1", 0)),
-        participation_ratio=float(values.get("participation_ratio", 0.0)),
-        local_intrinsic_dim=float(values.get("local_intrinsic_dim", 0.0)),
+        beta_0=int(values["beta_0"]) if "beta_0" in values else None,
+        beta_1=int(values["beta_1"]) if "beta_1" in values else None,
+        participation_ratio=values.get("participation_ratio"),
+        local_intrinsic_dim=values.get("local_intrinsic_dim"),
     )
 
 

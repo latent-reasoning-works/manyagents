@@ -150,20 +150,21 @@ class ClaudeAdapter(AgentAdapter):
             logger=log,
         )
 
-        text = ""
+        text_blocks = []
         tool_calls: List[Dict[str, Any]] = []
-        assistant_blocks: List[Dict[str, Any]] = []
         for block in response.content:
-            btype = getattr(block, "type", None)
+            btype = block.type if hasattr(block, "type") else block.get("type")
             if btype == "text":
-                text = block.text
-                assistant_blocks.append({"type": "text", "text": block.text})
+                text_blocks.append(block.text if hasattr(block, "text") else block["text"])
             elif btype == "tool_use":
                 tool_calls.append({
-                    "id": block.id,
-                    "name": block.name,
-                    "arguments": json.dumps(block.input or {}),  # loop json.loads() this
+                    "id": block.id if hasattr(block, "id") else block["id"],
+                    "name": block.name if hasattr(block, "name") else block["name"],
+                    "arguments": json.dumps(
+                        (block.input if hasattr(block, "input") else block["input"]) or {}
+                    ),  # loop json.loads() this
                 })
+        text = "\n".join(text_blocks)
 
         # Rebuild the assistant turn in OpenAI shape so the loop can append it and
         # _to_anthropic_messages can round-trip it on the next call.

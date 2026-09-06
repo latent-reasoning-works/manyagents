@@ -21,6 +21,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from .metrics.extractor import extract_methods, check_ground_truth_match
 from .metrics.llm import compute_system_metrics, format_metric, generate_summary_table
+from .types import validate_adapter_result
 from .utils.logger import ExperimentLogger, NullLogger
 
 log = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
             task_config["logic_type"] = task.get("logic_type")
 
             try:
-                result = await adapter.run(task_config, {})
+                result = validate_adapter_result(await adapter.run(task_config, {}), adapter_name)
                 if not result["success"]:
                     raise ValueError(result.get("summary", "Adapter failed"))
                 output_files = result.get("output_files", {})
@@ -206,7 +207,14 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
                 if "hidden_states" in output_files:
                     with np.load(output_files["hidden_states"], allow_pickle=False) as tensors:
                         hs = dict(tensors)
-                    if not any(array.size for array in hs.values()):
+                    if hs and not all(
+                        array.ndim >= 2 and array.size > 0
+                        and np.issubdtype(array.dtype, np.floating)
+                        and np.isfinite(array).all()
+                        for array in hs.values()
+                    ):
+                        raise ValueError("Hidden states must be nonempty, finite float state arrays (at least 2D)")
+                    if not hs:
                         hs = None
                 if task_config.get("capture_hidden_states", False) and hs is None:
                     raise ValueError("capture_hidden_states requested but trace has no tensors")
@@ -268,7 +276,7 @@ async def _run_agent(agent_config: DictConfig, prompt: str, system_prompt: str) 
     task_config['system_prompt'] = system_prompt
 
     try:
-        result = await adapter.run(task_config, {})
+        result = validate_adapter_result(await adapter.run(task_config, {}), adapter_name)
         if result['success']:
             raw_response = _extract_raw_response(result.get('output_files', {}))
             return _build_success_result(raw_response, result.get('metadata', {}))
@@ -306,7 +314,10 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
     for agent_name in cfg.active_agents:
         adapter_name = _get_agent_config(cfg, agent_name).adapter
         adapter_class = ADAPTER_REGISTRY.get(adapter_name)
-        if adapter_class is not None and not adapter_class.PRODUCES_TEXT_RESPONSE:
+        if adapter_class is None:
+            log.error(f"Unknown adapter: {adapter_name} (agent '{agent_name}')")
+            raise SystemExit(1)
+        if not adapter_class.PRODUCES_TEXT_RESPONSE:
             log.error(f"Adapter '{adapter_name}' does not produce text responses; cannot evaluate '{agent_name}'")
             raise SystemExit(1)
 
