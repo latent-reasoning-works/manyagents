@@ -74,7 +74,8 @@ Mock adapter response (prompt length: {len(prompt)} chars).
             "success": True,
             "summary": f"Mock response generated ({len(response)} chars)",
             "output_files": {
-                "response": response
+                "response": response,  # Legacy inline output for direct callers.
+                **self.save_response(response),
             },
             "metadata": {
                 "mock": True,

@@ -170,9 +170,7 @@ class VLLMAdapter(AgentAdapter):
             log.info(f"vLLM inference completed in {response_time:.2f}s")
 
             unique_id = uuid.uuid4().hex[:8]
-            output_files: Dict[str, Any] = {
-                "raw_response": self.save_text_output(content, f"response_{unique_id}.txt"),
-            }
+            output_files: Dict[str, Any] = self.save_response(content, f"response_{unique_id}.txt")
 
             if result["hidden_states"] is not None:
                 npz_path = self.output_dir / f"hidden_states_{unique_id}.npz"

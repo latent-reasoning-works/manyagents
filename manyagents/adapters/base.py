@@ -110,6 +110,10 @@ class AgentAdapter(ABC):
         filepath.write_text(content)
         return filepath
 
+    def save_response(self, content: str, filename: str = "response.txt") -> Dict[str, Any]:
+        """Save response text under the standard evaluation output key."""
+        return {"raw_response": self.save_text_output(content, filename)}
+
     def save_json_output(self, data: Any, filename: str) -> Path:
         """
         Save JSON content to a file in the adapter's output directory.

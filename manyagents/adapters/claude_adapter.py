@@ -236,7 +236,7 @@ class ClaudeAdapter(AgentAdapter):
 
         log.info(f"Completed in {response_time:.2f}s, tokens: {total_tokens}")
 
-        output_files = {"raw_response": self.save_text_output(content, "response.txt")}
+        output_files = self.save_response(content)
 
         if response_format == "json":
             parsed, error = parse_json_safe(content, log)

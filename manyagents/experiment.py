@@ -30,19 +30,27 @@ log = logging.getLogger(__name__)
 # RESULT BUILDERS
 # ============================================================================
 
-def _extract_raw_response(output_files: Dict[str, Any]) -> Optional[str]:
-    """Extract raw response text from adapter output files."""
-    if 'raw_response' not in output_files:
-        return None
-    response_path = output_files['raw_response']
-    if isinstance(response_path, Path):
-        return response_path.read_text()
-    return str(response_path)
+def _extract_raw_response(output_files: Dict[str, Any]) -> str:
+    """Read a response Path or inline string, rejecting missing or empty text."""
+    response = output_files.get('raw_response')
+    response_type = type(response).__name__
+    if isinstance(response, Path):
+        try:
+            content = response.read_text()
+        except (OSError, UnicodeError) as e:
+            raise ValueError(f"Unreadable raw_response ({response_type}): {e}") from e
+    elif isinstance(response, str):
+        content = response
+    else:
+        raise ValueError(f"raw_response must be Path or str, got {response_type}")
+    if not content.strip():
+        raise ValueError(f"raw_response is empty or whitespace-only ({response_type})")
+    return content
 
 
-def _build_success_result(raw_response: Optional[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
+def _build_success_result(raw_response: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     """Build a success result dict from raw response."""
-    extraction = extract_methods(raw_response or '') if raw_response else {}
+    extraction = extract_methods(raw_response)
     return {
         'success': True,
         'raw_response': raw_response,
@@ -248,7 +256,7 @@ async def _run_agent(agent_config: DictConfig, prompt: str, system_prompt: str) 
         return _build_error_result(result.get('summary', 'Unknown error'))
     except Exception as e:
         log.error(f"Error running {adapter_name}: {e}", exc_info=True)
-        return _build_error_result(str(e))
+        return _build_error_result(f"{adapter_name}: {e}")
 
 
 def _get_agent_config(cfg: DictConfig, agent_name: str) -> DictConfig:
