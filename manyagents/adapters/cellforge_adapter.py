@@ -32,6 +32,8 @@ class CellForgeAdapter(AgentAdapter):
 
     VALID_PHASES = {"task_analysis", "method_design", "code_generation", "all"}
 
+    PRODUCES_TEXT_RESPONSE = False
+
     def __init__(self, cellforge_path: Optional[str] = None):
         """
         Initialize CellForge adapter.

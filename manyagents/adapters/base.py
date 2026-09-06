@@ -4,15 +4,16 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, TypedDict, Union
+from typing import Any, Dict, Optional, NotRequired, TypedDict
 
 
 class AdapterResult(TypedDict):
     """Standardized result format for all adapters."""
     success: bool
     summary: str
-    output_files: Dict[str, Union[Path, list]]
-    metadata: Dict[str, Any]
+    output_files: Dict[str, Any]
+    metadata: NotRequired[Dict[str, Any]]
+    embeddings: NotRequired[Dict[str, Any]]
 
 
 @dataclass
@@ -24,6 +25,8 @@ class AdapterConfig:
 
 class AgentAdapter(ABC):
     """Abstract base class for wrapping external agents with standardized interface."""
+
+    PRODUCES_TEXT_RESPONSE: bool = True
 
     def __init__(self, name: str, config: Optional[AdapterConfig] = None):
         self.name = name
@@ -41,7 +44,7 @@ class AgentAdapter(ABC):
     def success_response(
         self,
         summary: str,
-        output_files: Optional[Dict[str, Union[Path, list]]] = None,
+        output_files: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> AdapterResult:
         """

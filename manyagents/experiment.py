@@ -263,6 +263,17 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
     if hasattr(cfg, "trace_extraction") and getattr(cfg.trace_extraction, "enabled", False):
         return await _run_trace_extraction(cfg)
 
+    from manyagents.adapters import ADAPTER_REGISTRY
+
+    for agent_name in cfg.active_agents:
+        if agent_name not in cfg.agents:
+            continue
+        adapter_name = _get_agent_config(cfg, agent_name).adapter
+        adapter_class = ADAPTER_REGISTRY.get(adapter_name)
+        if adapter_class is not None and not adapter_class.PRODUCES_TEXT_RESPONSE:
+            log.error(f"Adapter '{adapter_name}' does not produce text responses; cannot evaluate '{agent_name}'")
+            raise SystemExit(1)
+
     experiment_id = f"{cfg.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     logger = _create_logger(cfg, experiment_id)
 
