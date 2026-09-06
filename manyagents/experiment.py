@@ -177,6 +177,10 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
     output_dir = Path(cfg.output_dir)
     store_dir = output_dir / "traces"
 
+    summary = {
+        "total_traces": 0, "with_tensors": 0, "traces_failed": 0,
+        "backends": {}, "datasets": {}, "success": 0, "failure": 0, "unjudged": 0,
+    }
     with TraceStore(store_dir) as store:
         for i, task in enumerate(tasks):
             log.info(f"[{i + 1}/{len(tasks)}] {task['task_id']}")
@@ -191,25 +195,40 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
 
             try:
                 result = await adapter.run(task_config, {})
-                if result["success"] and "trace" in result.get("output_files", {}):
-                    trace_path = result["output_files"]["trace"]
-                    trace = ReasoningTrace.from_json(Path(trace_path).read_text())
+                if not result["success"]:
+                    raise ValueError(result.get("summary", "Adapter failed"))
+                output_files = result.get("output_files", {})
+                if "trace" not in output_files:
+                    raise ValueError("Successful adapter result has no trace")
+                trace = ReasoningTrace.from_json(Path(output_files["trace"]).read_text())
 
-                    hs = None
-                    if "hidden_states" in result.get("output_files", {}):
-                        hs_path = result["output_files"]["hidden_states"]
-                        hs = dict(np.load(hs_path, allow_pickle=False))
+                hs = None
+                if "hidden_states" in output_files:
+                    with np.load(output_files["hidden_states"], allow_pickle=False) as tensors:
+                        hs = dict(tensors)
+                    if not any(array.size for array in hs.values()):
+                        hs = None
+                if task_config.get("capture_hidden_states", False) and hs is None:
+                    raise ValueError("capture_hidden_states requested but trace has no tensors")
 
-                    store.append(trace, hidden_states=hs)
-                    log.info(f"  -> {len(trace.steps)} steps, {trace.output_tokens} tokens")
-                else:
-                    log.warning(f"  SKIPPED: {result.get('summary', 'unknown error')}")
+                store.append(trace, hidden_states=hs)
+                summary["total_traces"] += 1
+                summary["with_tensors"] += int(hs is not None)
+                backend = trace.model.backend.value
+                summary["backends"][backend] = summary["backends"].get(backend, 0) + 1
+                dataset = trace.task.dataset
+                summary["datasets"][dataset] = summary["datasets"].get(dataset, 0) + 1
+                outcome = "unjudged" if trace.success is None else "success" if trace.success else "failure"
+                summary[outcome] += 1
+                log.info(f"  -> {len(trace.steps)} steps, {trace.output_tokens} tokens")
             except Exception as e:
-                log.error(f"  FAILED: {e}", exc_info=True)
+                summary["traces_failed"] += 1
+                log.error(f"  {adapter_name}/{task['task_id']} FAILED: {e}", exc_info=True)
 
-    store_r = TraceStore(store_dir, mode="r")
-    summary = store_r.summary()
     log.info(f"Trace extraction complete: {json.dumps(summary, indent=2)}")
+    if summary["total_traces"] == 0:
+        log.error(f"Trace extraction failed: 0 persisted, {summary['traces_failed']} failed")
+        raise SystemExit(1)
 
     return {"experiment_id": f"trace_{dataset_name}", "summary": summary, "output_dir": str(store_dir)}
 
