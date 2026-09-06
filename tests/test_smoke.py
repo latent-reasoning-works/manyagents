@@ -77,7 +77,7 @@ class TestMockAdapterExecution:
         ))
 
         assert result["success"] is True
-        assert "response" in result["output_files"]
+        assert "raw_response" in result["output_files"]
         assert "methods_mentioned" in result["metadata"]
 
 
