@@ -166,3 +166,33 @@ async def test_claude_joins_all_text_blocks(as_dict, tmp_path, monkeypatch):
     assert result["output_files"]["raw_response"].read_text() == (
         "First recommendation: Leiden.\nSecond recommendation: SLINGSHOT."
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task_key", ["prompt", "task"])
+async def test_biomni_accepts_prompt_alias_and_emits_raw_response(task_key, tmp_path, monkeypatch):
+    import sys
+    from pathlib import Path
+    from types import ModuleType
+    from unittest.mock import Mock
+    from manyagents.adapters.biomni_adapter import BiomniAdapter
+
+    agent = Mock()
+    agent.go.return_value = "Use Leiden."
+    biomni = ModuleType("biomni")
+    agent_module = ModuleType("biomni.agent")
+    agent_module.A1 = Mock(return_value=agent)
+    monkeypatch.setitem(sys.modules, "biomni", biomni)
+    monkeypatch.setitem(sys.modules, "biomni.agent", agent_module)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    adapter = BiomniAdapter()
+    adapter.config.output_base_dir = tmp_path
+    config_path = Path(__file__).resolve().parents[1] / "manyagents/configs/agent/biomni.yaml"
+    config = OmegaConf.load(config_path).agent.config
+    task_config = dict(config)
+    task_config[task_key] = "Analyze these cells."
+    result = await adapter.run(task_config, {})
+    assert result["success"] is True
+    agent.go.assert_called_once_with("Analyze these cells.")
+    assert result["output_files"]["raw_response"].read_text() == "Use Leiden."
+    assert "prompt" in config

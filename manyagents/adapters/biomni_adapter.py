@@ -55,7 +55,7 @@ class BiomniAdapter(AgentAdapter):
 
         Args:
             task_config: Configuration including:
-                - task: str (required) - The biomedical task to perform
+                - task or prompt: str (required) - The biomedical task to perform
                 - llm: str (optional) - LLM model to use (default: claude-sonnet-4-20250514)
                 - data_path: str (optional) - Override data directory path
                 - disable_datalake: bool (optional) - Skip datalake download
@@ -71,14 +71,14 @@ class BiomniAdapter(AgentAdapter):
         if error := self._check_prerequisites():
             return self.error_response(error, error_type="missing_api_key")
 
-        if "task" not in task_config:
+        if "task" not in task_config and "prompt" not in task_config:
             return self.error_response(
-                "BiomniAdapter requires 'task' parameter in task_config",
+                "BiomniAdapter requires 'task' or 'prompt' parameter in task_config",
                 error_type="missing_parameter"
             )
 
         # Extract configuration
-        task = task_config["task"]
+        task = task_config.get("task", task_config.get("prompt"))
         llm = task_config.get("llm", self.DEFAULT_LLM)
         data_path = Path(task_config.get("data_path", self.data_path))
         timeout = task_config.get("timeout", self.DEFAULT_TIMEOUT)
@@ -102,11 +102,11 @@ class BiomniAdapter(AgentAdapter):
             )
 
             execution_time = time.time() - start_time
-            output_file = self.save_text_output(str(result), "biomni_output.txt")
+            output_files = self.save_response(str(result), "biomni_output.txt")
 
             return self.success_response(
                 summary=f"Biomni completed task in {execution_time:.1f}s",
-                output_files={"result": output_file},
+                output_files=output_files,
                 metadata={
                     "llm": llm,
                     "execution_time": execution_time,
