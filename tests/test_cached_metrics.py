@@ -1,7 +1,6 @@
 """Tests for cached metrics setup in ManyLatentsAdapter."""
 
 import pytest
-import numpy as np
 from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
 
 
@@ -219,12 +218,6 @@ class TestCachedMetricCallability:
     def test_parameter_priority(self):
         """Test parameter merge priority: defaults < global < specific."""
         adapter = ManyLatentsAdapter()
-
-        # Get default value for n_neighbors
-        from manyagents.adapters.metric_registry import MetricRegistry
-        registry = MetricRegistry()
-        defaults = registry.get_defaults('participation_ratio')
-        default_n_neighbors = defaults.get('n_neighbors', 25)
 
         # Setup with both global and specific overrides
         adapter.setup_metrics(

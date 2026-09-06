@@ -3,7 +3,6 @@ Smoke tests for CI - verify basic functionality works.
 
 These tests are fast and don't require API keys or GPUs.
 Run with: pytest tests/test_smoke.py -v
-
 """
 
 import pytest

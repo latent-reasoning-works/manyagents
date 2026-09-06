@@ -2,7 +2,7 @@
 """Tests for ClaudeAdapter trace building."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from manyagents.adapters.claude_adapter import ClaudeAdapter
 from manyagents.schemas.reasoning import ModelBackend, StepKind

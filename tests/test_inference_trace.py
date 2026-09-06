@@ -1,10 +1,16 @@
 # tests/test_inference_trace.py
 """Tests for inference.py trace building and segmentation functions."""
 
+from unittest.mock import patch, MagicMock
+
 import numpy as np
 import pytest
 
 from manyagents.inference import (
+    extract_trace,
+    get_model,
+    clear_model_cache,
+    _model_cache,
     build_reasoning_trace,
     segment_by_delimiter,
     segment_by_tags,
@@ -81,9 +87,6 @@ def test_build_reasoning_trace_single_step():
 # ---------------------------------------------------------------------------
 # extract_trace tests
 # ---------------------------------------------------------------------------
-
-from unittest.mock import patch, MagicMock
-from manyagents.inference import extract_trace
 
 
 def _mock_generate_with_hidden_states(model, tokenizer, prompt, **kwargs):
@@ -553,8 +556,6 @@ def test_build_reasoning_trace_falls_back_without_kind():
 # ---------------------------------------------------------------------------
 # Model cache tests
 # ---------------------------------------------------------------------------
-
-from manyagents.inference import get_model, clear_model_cache, _model_cache
 
 
 def test_model_cache_stores_and_retrieves(monkeypatch):

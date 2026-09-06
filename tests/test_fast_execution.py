@@ -13,7 +13,6 @@ Test Coverage:
 
 import pytest
 import numpy as np
-from pathlib import Path
 import time
 
 from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
