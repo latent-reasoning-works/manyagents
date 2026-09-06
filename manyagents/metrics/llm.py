@@ -90,7 +90,8 @@ def compute_system_metrics(
         'jaccard_max': jaccard_stats['max'],
         'ground_truth_match_rate': mean(ground_truth_matches) if ground_truth_matches else 0.0,
         'clustering_for_all_rate': mean(clustering_for_all) if clustering_for_all else 0.0,
-        'prompts_evaluated': len(system_results)
+        'prompts_evaluated': len(method_sets),
+        'prompts_failed': len(system_results) - len(method_sets)
     }
 
 

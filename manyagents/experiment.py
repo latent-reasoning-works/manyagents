@@ -273,9 +273,18 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
 
     from manyagents.adapters import ADAPTER_REGISTRY
 
+    if not cfg.active_agents:
+        log.error("active_agents must not be empty")
+        raise SystemExit(1)
+    unknown_agents = [name for name in cfg.active_agents if name not in cfg.agents]
+    if unknown_agents:
+        log.error(
+            f"Unknown active agent(s): {', '.join(unknown_agents)}. "
+            f"Configured agents: {', '.join(cfg.agents)}"
+        )
+        raise SystemExit(1)
+
     for agent_name in cfg.active_agents:
-        if agent_name not in cfg.agents:
-            continue
         adapter_name = _get_agent_config(cfg, agent_name).adapter
         adapter_class = ADAPTER_REGISTRY.get(adapter_name)
         if adapter_class is not None and not adapter_class.PRODUCES_TEXT_RESPONSE:
@@ -304,7 +313,7 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
         # Build and run agent tasks in parallel
         tasks = [
             (name, _run_agent(_get_agent_config(cfg, name), prompt_text, cfg.system_prompt))
-            for name in cfg.active_agents if name in cfg.agents
+            for name in cfg.active_agents
         ]
 
         gathered = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
@@ -348,4 +357,9 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
         log.info(f"wandb run: {wandb_url}")
 
     _print_summary(metrics)
+    if not any(m['prompts_evaluated'] for m in metrics.values()):
+        log.error("No successful evaluations")
+        for agent_name, m in metrics.items():
+            log.error(f"{agent_name}: {m['prompts_evaluated']} succeeded, {m['prompts_failed']} failed")
+        raise SystemExit(1)
     return experiment_results
