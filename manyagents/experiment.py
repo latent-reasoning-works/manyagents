@@ -20,7 +20,7 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 from .metrics.extractor import extract_methods, check_ground_truth_match
-from .metrics.llm import compute_system_metrics, generate_summary_table
+from .metrics.llm import compute_system_metrics, format_metric, generate_summary_table
 from .utils.logger import ExperimentLogger, NullLogger
 
 log = logging.getLogger(__name__)
@@ -116,16 +116,16 @@ def _save_results(experiment_results: Dict[str, Any], output_dir: Path, experime
     log.info(f"Summary saved to {summary_path}")
 
 
-def _print_summary(metrics: Dict[str, Dict[str, float]]) -> None:
+def _print_summary(metrics: Dict[str, Dict[str, float | None]]) -> None:
     """Print metrics summary to console."""
     print("\n" + "=" * 60)
     print("EXPERIMENT RESULTS")
     print("=" * 60)
     for agent_name, m in metrics.items():
         print(f"\n{agent_name}:")
-        print(f"  Jaccard Similarity: {m.get('jaccard_similarity_across_prompts', 0):.2f}")
-        print(f"  Ground Truth Match: {m.get('ground_truth_match_rate', 0):.1%}")
-        print(f"  Clustering-for-All: {m.get('clustering_for_all_rate', 0):.1%}")
+        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')}")
+        print(f"  Ground Truth Match: {format_metric(m.get('ground_truth_match_rate'), '.1%')}")
+        print(f"  Clustering-for-All: {format_metric(m.get('clustering_for_all_rate'), '.1%')}")
 
 
 # ============================================================================

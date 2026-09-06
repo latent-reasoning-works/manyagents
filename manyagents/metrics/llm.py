@@ -20,7 +20,7 @@ def compute_jaccard_similarity(set1: Set[str], set2: Set[str]) -> float:
     return len(set1 & set2) / len(union) if union else 0.0
 
 
-def compute_pairwise_jaccard(method_sets: Dict[str, Set[str]]) -> Dict[str, float]:
+def compute_pairwise_jaccard(method_sets: Dict[str, Set[str]]) -> Dict[str, Any] | None:
     """
     Compute pairwise Jaccard similarity between all method sets.
 
@@ -28,10 +28,10 @@ def compute_pairwise_jaccard(method_sets: Dict[str, Set[str]]) -> Dict[str, floa
         method_sets: Dict mapping prompt_id -> set of methods
 
     Returns:
-        Dict with 'mean', 'min', 'max', and 'pairwise' (detailed) values
+        Dict with 'mean', 'min', 'max', and 'pairwise' values, or None without a pair.
     """
     if len(method_sets) < 2:
-        return {'mean': 1.0, 'min': 1.0, 'max': 1.0, 'pairwise': {}}
+        return None
 
     pairwise = {
         f"{p1}_vs_{p2}": compute_jaccard_similarity(method_sets[p1], method_sets[p2])
@@ -50,7 +50,7 @@ def compute_pairwise_jaccard(method_sets: Dict[str, Set[str]]) -> Dict[str, floa
 def compute_system_metrics(
     system_results: Dict[str, Dict[str, Any]],
     prompts: Dict[str, Dict[str, Any]]
-) -> Dict[str, float]:
+) -> Dict[str, float | None]:
     """
     Compute aggregate metrics for a single AI system across all prompts.
 
@@ -85,14 +85,21 @@ def compute_system_metrics(
     jaccard_stats = compute_pairwise_jaccard(method_sets)
 
     return {
-        'jaccard_similarity_across_prompts': jaccard_stats['mean'],
-        'jaccard_min': jaccard_stats['min'],
-        'jaccard_max': jaccard_stats['max'],
-        'ground_truth_match_rate': mean(ground_truth_matches) if ground_truth_matches else 0.0,
-        'clustering_for_all_rate': mean(clustering_for_all) if clustering_for_all else 0.0,
+        'jaccard_similarity_across_prompts': jaccard_stats['mean'] if jaccard_stats else None,
+        'jaccard_min': jaccard_stats['min'] if jaccard_stats else None,
+        'jaccard_max': jaccard_stats['max'] if jaccard_stats else None,
+        'ground_truth_match_rate': mean(ground_truth_matches) if ground_truth_matches else None,
+        'clustering_for_all_rate': mean(clustering_for_all) if clustering_for_all else None,
         'prompts_evaluated': len(method_sets),
         'prompts_failed': len(system_results) - len(method_sets)
     }
+
+
+def format_metric(value: float | None, format_spec: str | None = '.2f') -> str | float | None:
+    """Format unavailable measurements as n/a, or preserve values for numeric sinks."""
+    if format_spec is None:
+        return value
+    return format(value, format_spec) if value is not None else 'n/a'
 
 
 def generate_summary_table(
@@ -118,14 +125,17 @@ def generate_summary_table(
         ]
         lines.extend(
             f"| {system} | "
-            f"{m.get('jaccard_similarity_across_prompts', 0):.2f} | "
-            f"{m.get('ground_truth_match_rate', 0):.1%} | "
-            f"{m.get('clustering_for_all_rate', 0):.1%} |"
+            f"{format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')} | "
+            f"{format_metric(m.get('ground_truth_match_rate'), '.1%')} | "
+            f"{format_metric(m.get('clustering_for_all_rate'), '.1%')} |"
             for system, m in metrics.items()
         )
         return '\n'.join(lines)
 
     if format == 'latex':
+        def percent(value):
+            return format_metric(value, '.0%').replace('%', r'\%')
+
         lines = [
             r"\begin{tabular}{lccc}",
             r"\toprule",
@@ -134,9 +144,9 @@ def generate_summary_table(
         ]
         lines.extend(
             f"{system} & "
-            f"{m.get('jaccard_similarity_across_prompts', 0):.2f} & "
-            f"{m.get('ground_truth_match_rate', 0)*100:.0f}\\% & "
-            f"{m.get('clustering_for_all_rate', 0)*100:.0f}\\% \\\\"
+            f"{format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')} & "
+            f"{percent(m.get('ground_truth_match_rate'))} & "
+            f"{percent(m.get('clustering_for_all_rate'))} \\\\"
             for system, m in metrics.items()
         )
         lines.extend([r"\bottomrule", r"\end{tabular}"])

@@ -116,7 +116,7 @@ def compute_gvector(
 
         except Exception as e:
             logger.warning(f"Failed to compute metric '{metric_name}': {e}")
-            values[metric_name] = 0.0
+            raise
 
     return GVector(
         beta_0=int(values.get("beta_0", 0)),

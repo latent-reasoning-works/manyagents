@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..metrics.llm import format_metric
+
 log = logging.getLogger(__name__)
 
 # Lazy import wandb to avoid import errors if not installed
@@ -172,7 +174,7 @@ class ExperimentLogger:
     # Backwards compatibility alias
     log_scenario_result = log_prompt_result
 
-    def log_system_metrics(self, system: str, metrics: Dict[str, float]) -> None:
+    def log_system_metrics(self, system: str, metrics: Dict[str, float | None]) -> None:
         """Log aggregate metrics for a system.
 
         Args:
@@ -184,16 +186,22 @@ class ExperimentLogger:
 
         wandb = _get_wandb()
 
+        names = {
+            "jaccard": "jaccard_similarity_across_prompts",
+            "jaccard_min": "jaccard_min",
+            "jaccard_max": "jaccard_max",
+            "ground_truth_match_rate": "ground_truth_match_rate",
+            "clustering_for_all_rate": "clustering_for_all_rate",
+            "prompts_evaluated": "prompts_evaluated",
+            "prompts_failed": "prompts_failed",
+        }
+        values = {name: format_metric(metrics.get(key), None) for name, key in names.items()}
         wandb.log({
-            f"summary/{system}/jaccard": metrics.get("jaccard_similarity_across_prompts", 0),
-            f"summary/{system}/jaccard_min": metrics.get("jaccard_min", 0),
-            f"summary/{system}/jaccard_max": metrics.get("jaccard_max", 0),
-            f"summary/{system}/ground_truth_match_rate": metrics.get("ground_truth_match_rate", 0),
-            f"summary/{system}/clustering_for_all_rate": metrics.get("clustering_for_all_rate", 0),
-            f"summary/{system}/prompts_evaluated": metrics.get("prompts_evaluated", 0),
+            f"summary/{system}/{name}": value
+            for name, value in values.items() if value is not None
         })
 
-    def log_summary_table(self, all_metrics: Dict[str, Dict[str, float]]) -> None:
+    def log_summary_table(self, all_metrics: Dict[str, Dict[str, float | None]]) -> None:
         """Create wandb.Table for main results (Table 1 in paper).
 
         Args:
@@ -210,16 +218,18 @@ class ExperimentLogger:
             "Jaccard (Invariance)",
             "Ground Truth Match",
             "Clustering-for-All",
-            "Scenarios"
+            "Prompts Evaluated",
+            "Prompts Failed"
         ])
 
         for system, m in all_metrics.items():
             results_table.add_data(
                 system,
-                round(m.get("jaccard_similarity_across_prompts", 0), 3),
-                round(m.get("ground_truth_match_rate", 0), 3),
-                round(m.get("clustering_for_all_rate", 0), 3),
+                format_metric(m.get("jaccard_similarity_across_prompts"), None),
+                format_metric(m.get("ground_truth_match_rate"), None),
+                format_metric(m.get("clustering_for_all_rate"), None),
                 m.get("prompts_evaluated", 0),
+                m.get("prompts_failed", 0),
             )
 
         wandb.log({"results_summary": results_table})

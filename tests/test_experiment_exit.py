@@ -74,3 +74,99 @@ async def test_partial_failure_counts_both(experiment_config):
         assert sum(r["success"] for r in result["results"][agent].values()) == succeeded
         assert result["metrics"][agent]["prompts_evaluated"] == succeeded
         assert result["metrics"][agent]["prompts_failed"] == failed
+
+
+@pytest.mark.parametrize("method_sets", [{}, {"only": {"leiden"}}], ids=["zero", "single"])
+def test_jaccard_none_with_single_prompt(method_sets):
+    from manyagents.metrics.llm import compute_pairwise_jaccard
+
+    assert compute_pairwise_jaccard(method_sets) is None
+
+
+def test_zero_success_rates_are_none():
+    from manyagents.metrics.llm import compute_system_metrics
+
+    metrics = compute_system_metrics({"failed": {"success": False}}, {})
+    for name in ["jaccard_similarity_across_prompts", "jaccard_min", "jaccard_max",
+                 "ground_truth_match_rate", "clustering_for_all_rate"]:
+        assert metrics[name] is None
+    assert metrics["prompts_evaluated"] == 0
+    assert metrics["prompts_failed"] == 1
+
+
+def test_undefined_metrics_in_json_console_and_markdown(tmp_path, capsys):
+    from manyagents.experiment import _print_summary, _save_results
+
+    result = {
+        "timestamp": "2026-09-06", "metrics": {"failed": {
+            "jaccard_similarity_across_prompts": None,
+            "ground_truth_match_rate": None, "clustering_for_all_rate": None,
+            "prompts_evaluated": 0, "prompts_failed": 2,
+        }},
+    }
+    _save_results(result, tmp_path, "undefined")
+    saved = json.loads((tmp_path / "results.json").read_text())
+    assert saved["metrics"]["failed"]["ground_truth_match_rate"] is None
+    assert (tmp_path / "summary.md").read_text().count("n/a") == 3
+    _print_summary(result["metrics"])
+    assert capsys.readouterr().out.count("n/a") == 3
+
+
+def test_wandb_omits_undefined_metrics(monkeypatch):
+    from unittest.mock import Mock
+    from manyagents.utils import logger as logger_module
+
+    wandb = Mock()
+    monkeypatch.setattr(logger_module, "_get_wandb", lambda: wandb)
+    logger = logger_module.ExperimentLogger(enabled=False)
+    logger.enabled = True
+    logger.run = Mock()
+    logger.log_system_metrics("failed", {
+        "jaccard_similarity_across_prompts": None, "jaccard_min": None, "jaccard_max": None,
+        "ground_truth_match_rate": None, "clustering_for_all_rate": None,
+        "prompts_evaluated": 0, "prompts_failed": 2,
+    })
+    assert wandb.log.call_args.args[0] == {
+        "summary/failed/prompts_evaluated": 0, "summary/failed/prompts_failed": 2,
+    }
+
+
+def test_wandb_summary_handles_missing_measurements(monkeypatch):
+    from unittest.mock import Mock
+    from manyagents.utils import logger as logger_module
+
+    wandb = Mock()
+    monkeypatch.setattr(logger_module, "_get_wandb", lambda: wandb)
+    logger = logger_module.ExperimentLogger(enabled=False)
+    logger.enabled = True
+    logger.run = Mock()
+    logger.log_summary_table({"single": {
+        "jaccard_similarity_across_prompts": None, "ground_truth_match_rate": 0.5,
+        "clustering_for_all_rate": 1.0, "prompts_evaluated": 1, "prompts_failed": 1,
+    }})
+    row = wandb.Table.return_value.add_data.call_args.args
+    assert row == ("single", None, 0.5, 1.0, 1, 1)
+
+
+def test_gvector_metric_failure_propagates(monkeypatch):
+    import sys
+    from types import ModuleType
+    from unittest.mock import Mock
+    import numpy as np
+    from manyagents.workflows.sequence import compute_gvector
+
+    metrics_module = ModuleType("manylatents.metrics")
+    metrics_module.compute_metric = Mock(side_effect=RuntimeError("metric exploded"))
+    monkeypatch.setitem(sys.modules, "manylatents.metrics", metrics_module)
+    with pytest.raises(RuntimeError, match="metric exploded"):
+        compute_gvector(np.zeros((3, 2)), ["participation_ratio"])
+
+
+def test_latex_summary_handles_undefined_metrics():
+    from manyagents.metrics.llm import generate_summary_table
+
+    table = generate_summary_table({"metrics": {"failed": {
+        "jaccard_similarity_across_prompts": None,
+        "ground_truth_match_rate": None, "clustering_for_all_rate": None,
+    }}}, format="latex")
+    assert table.count("n/a") == 3
