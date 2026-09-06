@@ -141,4 +141,4 @@ def test_vllm_error_names_vllm_extra(monkeypatch):
     from manyagents.inference import get_vllm_engine
     block_import(monkeypatch, 'vllm')
     with pytest.raises(ImportError, match='--extra vllm'):
-        get_vllm_engine('packaging-fixture')
+        get_vllm_engine('fixture/packaging')

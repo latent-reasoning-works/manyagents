@@ -22,7 +22,7 @@ def _get_wandb():
         except ImportError:
             raise ImportError(
                 "wandb is required for experiment logging. "
-                "Install with: pip install wandb"
+                "Install with: uv sync --extra wandb"
             )
     return _wandb
 

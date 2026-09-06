@@ -143,7 +143,7 @@ class HFAdapter(AgentAdapter):
 
         except ImportError as e:
             return self.error_response(
-                f"Missing dependency: {e}. Run 'uv add transformers accelerate'",
+                f"Missing dependency: {e}",
                 error_type="import_error",
                 details=str(e),
             )

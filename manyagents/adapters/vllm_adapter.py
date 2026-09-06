@@ -200,7 +200,7 @@ class VLLMAdapter(AgentAdapter):
 
         except ImportError as e:
             return self.error_response(
-                f"Missing dependency: {e}. Run 'uv pip install manyagents[vllm]'",
+                f"Missing dependency: {e}",
                 error_type="import_error",
                 details=str(e),
             )

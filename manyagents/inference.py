@@ -143,7 +143,12 @@ def get_vllm_engine(
 
     key = (model_path, tuple(sorted((k, _hashable(v)) for k, v in args.items())))
     if key not in _vllm_cache:
-        from vllm import LLM
+        try:
+            from vllm import LLM
+        except ImportError as e:
+            raise ImportError(
+                "vLLM generation require the vllm dependencies. Run 'uv sync --extra vllm'."
+            ) from e
 
         log.info(f"vLLM cache miss for '{model}' -> building LLM({model_path})")
         _vllm_cache[key] = LLM(**args)
@@ -201,7 +206,7 @@ def load_model(
     trust_remote_code: bool = True,
     attn_implementation: str | None = None,
 ):
-    """Load a model and tokenizer via ``HFTrainerModule``.
+    """Load a model and tokenizer, using plain transformers without manylatents.
 
     Args:
         attn_implementation: forwarded to ``HFTrainerConfig`` (e.g. ``"eager"``,
@@ -211,13 +216,27 @@ def load_model(
     Returns ``(network, tokenizer, hf_module)`` where *network* is the
     underlying ``nn.Module`` ready for inference. ``attn_implementation``
     (e.g. ``"sdpa"``, ``"eager"``, ``"flash_attention_2"``) is forwarded to
-    ``HFTrainerConfig`` when set; ``None`` leaves the HF default.
+    the loader when set; ``None`` leaves the HF default. The third return
+    value is ``None`` when manylatents is unavailable.
     """
     import torch
-    from manylatents.lightning.hf_trainer import HFTrainerConfig, HFTrainerModule
-
     if dtype is None:
         dtype = torch.bfloat16
+
+    try:
+        from manylatents.lightning.hf_trainer import HFTrainerConfig, HFTrainerModule
+    except ImportError:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path, trust_remote_code=trust_remote_code,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path, torch_dtype=dtype, device_map=device_map,
+            trust_remote_code=trust_remote_code,
+            attn_implementation=attn_implementation,
+        ).eval()
+        return model, tokenizer, None
 
     cfg_kwargs = dict(
         model_name_or_path=model_path,
@@ -288,7 +307,12 @@ def resolve_layer_specs(
     If *layer_specs* is given, those paths are used directly.  Otherwise the
     model family is auto-detected from *model_name*.
     """
-    from manylatents.lightning.hooks import LayerSpec
+    try:
+        from manylatents.lightning.hooks import LayerSpec
+    except ImportError as e:
+        raise ImportError(
+            "Hidden-state hooks require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     if layer_specs:
         return [LayerSpec(path=p, reduce=reduce) for p in layer_specs]
@@ -360,7 +384,12 @@ def generate_with_hooks(
         }
     """
     import torch
-    from manylatents.lightning.hooks import ActivationExtractor
+    try:
+        from manylatents.lightning.hooks import ActivationExtractor
+    except ImportError as e:
+        raise ImportError(
+            "Hidden-state hooks require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     inputs = tokenizer(prompt, return_tensors="pt")
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
@@ -502,7 +531,12 @@ def build_sampling_params(
     Returns:
         A ``vllm.SamplingParams`` instance.
     """
-    from vllm import SamplingParams
+    try:
+        from vllm import SamplingParams
+    except ImportError as e:
+        raise ImportError(
+            "vLLM generation require the vllm dependencies. Run 'uv sync --extra vllm'."
+        ) from e
 
     params: dict = dict(
         max_tokens=max_new_tokens,
@@ -1023,7 +1057,12 @@ def segment_by_velocity(
 
     Returns a list of ``{"text", "token_start", "token_end", "kind"}``.
     """
-    from scipy.signal import find_peaks
+    try:
+        from scipy.signal import find_peaks
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     token_ids = tokenizer.encode(text, add_special_tokens=False)
     n_tokens = min(len(token_ids), token_hidden_states.shape[0])
@@ -1035,7 +1074,12 @@ def segment_by_velocity(
     hs = token_hidden_states[:n_tokens, layer, :]  # (n_tokens, d_model)
 
     # Cosine distance between consecutive tokens
-    from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    try:
+        from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     cos_dist = compute_cosine_velocity(hs)  # (n_tokens - 1,)
 
@@ -1123,10 +1167,20 @@ def segment_hybrid(
     think_hs = token_hidden_states[think_start_tokens:think_end_tokens]
     think_token_ids = full_tokens[think_start_tokens:think_end_tokens]
 
-    from scipy.signal import find_peaks
+    try:
+        from scipy.signal import find_peaks
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     hs = think_hs[:, layer, :]  # (n_think_tokens, d_model)
-    from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    try:
+        from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     cos_dist = compute_cosine_velocity(hs)
 

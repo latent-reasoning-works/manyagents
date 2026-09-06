@@ -131,7 +131,7 @@ class BiomniAdapter(AgentAdapter):
 
         except ImportError as e:
             return self.error_response(
-                f"Biomni not installed: {e}. Run 'uv add biomni'",
+                f"Biomni not installed: {e}. Run 'uv sync --extra full'",
                 error_type="import_error",
                 details=str(e)
             )
