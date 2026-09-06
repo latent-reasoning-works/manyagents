@@ -45,7 +45,7 @@ def registry_modules(tmp_path, monkeypatch):
     package = tmp_path / 'manylatents'
     configs = package / 'configs' / 'metrics'
     configs.mkdir(parents=True)
-    (configs / 'example.yaml').write_text('at: embedding\n_target_: manylatents.metrics.Example\n')
+    (configs / 'example.yaml').write_text('example:\n  at: embedding\n  _target_: manylatents.metrics.Example\n')
     stub = ModuleType('manylatents')
     stub.__file__ = str(package / '__init__.py')
     monkeypatch.setitem(sys.modules, 'manylatents', stub)
@@ -142,3 +142,28 @@ def test_vllm_error_names_vllm_extra(monkeypatch):
     block_import(monkeypatch, 'vllm')
     with pytest.raises(ImportError, match='--extra vllm'):
         get_vllm_engine('fixture/packaging')
+
+
+@pytest.mark.parametrize('dependency', ['manylatents', 'scipy'])
+@pytest.mark.parametrize('segmenter', ['segment_by_velocity', 'segment_hybrid'])
+def test_geometry_error_names_traces_extra(monkeypatch, dependency, segmenter):
+    import numpy as np
+    from manyagents import inference
+
+    # A character tokenizer keeps the hybrid thinking range nonempty.
+    tokenizer = MagicMock()
+    tokenizer.encode.side_effect = lambda text, **kwargs: list(range(len(text)))
+    signal = ModuleType('scipy.signal')
+    signal.find_peaks = MagicMock()
+    monkeypatch.setitem(sys.modules, 'scipy.signal', signal)
+    block_import(monkeypatch, dependency)
+    text = '<think>abcdefghijk</think>answer'
+    with pytest.raises(ImportError, match='--extra traces'):
+        getattr(inference, segmenter)(text, tokenizer, np.ones((len(text), 1, 3)))
+
+
+def test_registry_missing_dependency_names_traces_extra(monkeypatch):
+    from manyagents.adapters.metric_registry import MetricRegistry
+    block_import(monkeypatch, 'manylatents')
+    with pytest.raises(ImportError, match='--extra traces'):
+        MetricRegistry()

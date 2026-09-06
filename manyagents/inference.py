@@ -147,7 +147,7 @@ def get_vllm_engine(
             from vllm import LLM
         except ImportError as e:
             raise ImportError(
-                "vLLM generation require the vllm dependencies. Run 'uv sync --extra vllm'."
+                "vLLM generation requires the vllm dependencies. Run 'uv sync --extra vllm'."
             ) from e
 
         log.info(f"vLLM cache miss for '{model}' -> building LLM({model_path})")
@@ -535,7 +535,7 @@ def build_sampling_params(
         from vllm import SamplingParams
     except ImportError as e:
         raise ImportError(
-            "vLLM generation require the vllm dependencies. Run 'uv sync --extra vllm'."
+            "vLLM generation requires the vllm dependencies. Run 'uv sync --extra vllm'."
         ) from e
 
     params: dict = dict(
@@ -1061,7 +1061,7 @@ def segment_by_velocity(
         from scipy.signal import find_peaks
     except ImportError as e:
         raise ImportError(
-            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
         ) from e
 
     token_ids = tokenizer.encode(text, add_special_tokens=False)
@@ -1078,7 +1078,7 @@ def segment_by_velocity(
         from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
     except ImportError as e:
         raise ImportError(
-            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
         ) from e
 
     cos_dist = compute_cosine_velocity(hs)  # (n_tokens - 1,)
@@ -1171,7 +1171,7 @@ def segment_hybrid(
         from scipy.signal import find_peaks
     except ImportError as e:
         raise ImportError(
-            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
         ) from e
 
     hs = think_hs[:, layer, :]  # (n_think_tokens, d_model)
@@ -1179,7 +1179,7 @@ def segment_hybrid(
         from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
     except ImportError as e:
         raise ImportError(
-            "Velocity segmentation require the traces dependencies. Run 'uv sync --extra traces'."
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
         ) from e
 
     cos_dist = compute_cosine_velocity(hs)
