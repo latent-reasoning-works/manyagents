@@ -44,4 +44,4 @@ For config merging and building, see `manyagents.config_utils`:
 **Current approach**: Use plain Hydra compose + OmegaConf.merge for experiment
 loading. Keep hydra-zen as experimental prototype for potential future use.
 """
-__version__ = "0.1.0"
+__version__ = "0.1.1"

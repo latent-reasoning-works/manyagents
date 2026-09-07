@@ -31,7 +31,8 @@ def test_wheel_builds_and_has_no_hook(tmp_path):
     with zipfile.ZipFile(wheel) as archive:
         assert 'manyagents/inference.py' in archive.namelist()
         assert not any('hatch_build' in name for name in archive.namelist())
-        metadata = archive.read('manyagents-0.1.0.dist-info/METADATA').decode()
+        version = project['project']['version']
+        metadata = archive.read(f'manyagents-{version}.dist-info/METADATA').decode()
         assert 'Provides-Extra: traces' in metadata
         assert 'Provides-Extra: wandb' in metadata
         assert 'Provides-Extra: docs' not in metadata
