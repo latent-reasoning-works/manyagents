@@ -1,11 +1,12 @@
 """Functional core for model loading, prompt building, and generation.
 
 Plain functions — no classes, no async, no locking.  Both
-``LocalLLMAdapter`` and ``scripts/extract_traces.py`` delegate here.
+``HFAdapter`` and ``VLLMAdapter`` delegate here.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 import re
 import time
@@ -159,36 +160,33 @@ def get_vllm_engine(
 # Model resolution
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL_PATHS: dict[str, str] = {
-    "llama-3.3-70b": "/network/weights/llama.var/llama_3.3/Llama-3.3-70B-Instruct",
-    "llama-3.1-70b": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-70B-Instruct",
-    "llama-3.1-8b": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct",
-    "llama-3.1-405b-fp8": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-405B-Instruct-FP8",
-    "olmo-7b": "/network/weights/olmo/OLMo-7B-Twin-2T",
-    "olmo-1b": "/network/weights/olmo/OLMo-1B-Twin-2T",
-    "olmoe-1b-7b": "/network/weights/olmoe/OLMoE-1B-7B-0924",
-}
-
-
-def resolve_model_path(model_name: str) -> str:
+def resolve_model_path(
+    model_name: str, available_models: Mapping[str, str] | None = None,
+) -> str:
     """Resolve a short model name to a filesystem path or HF Hub ID.
 
-    Returns the corresponding local path for known aliases, the name
+    Aliases are explicit per-call configuration, never process-global state.
+    Hydra agent configs pass the cluster map through ``config.available_models``.
+    Direct callers can supply the same mapping as the second argument.
+
+    Returns the corresponding path or Hub ID for configured aliases, the name
     itself if it looks like a HF Hub ID (contains ``/``), or an existing
     filesystem path.  Raises ``ValueError`` otherwise.
     """
     from pathlib import Path
 
-    if model_name in DEFAULT_MODEL_PATHS:
-        return DEFAULT_MODEL_PATHS[model_name]
+    aliases = available_models or {}
+    if model_name in aliases:
+        return aliases[model_name]
     if "/" in model_name:
         return model_name  # HF Hub ID (e.g. "Qwen/Qwen3-4B")
     if Path(model_name).exists():
         return model_name
     raise ValueError(
         f"Unknown model '{model_name}'. "
-        f"Available: {list(DEFAULT_MODEL_PATHS.keys())}, "
-        "a HF Hub ID (org/model), or a full path."
+        "Select a cluster config that supplies available_models, provide "
+        "an available_models mapping, or use a HF Hub ID (org/model) or filesystem path. "
+        f"Configured aliases: {sorted(aliases)}."
     )
 
 

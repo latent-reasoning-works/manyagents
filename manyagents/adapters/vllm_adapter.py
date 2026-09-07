@@ -49,7 +49,7 @@ _ENGINE_KEYS = (
 class VLLMAdapter(AgentAdapter):
     """Adapter for vLLM inference (generation) + HF hidden-state capture.
 
-    Loads models from local paths (e.g. /network/weights/) or HF Hub IDs
+    Loads models from local paths (e.g. /models/) or HF Hub IDs
     (e.g. Qwen/Qwen3-0.6B), same as ``HFAdapter``.
     """
 
@@ -100,15 +100,17 @@ class VLLMAdapter(AgentAdapter):
         engine_kwargs = self._engine_kwargs(task_config)
 
         try:
-            model_path = inference.resolve_model_path(model_name)
+            model_path = inference.resolve_model_path(
+                model_name, task_config.get("available_models"),
+            )
 
             def _run_inference():
-                engine = inference.get_vllm_engine(model_name, **engine_kwargs)
+                engine = inference.get_vllm_engine(model_path, **engine_kwargs)
 
                 if build_trace or capture_hidden_states:
                     # HF model (on GPU) supplies the hidden-state forward pass.
                     hf_model, tokenizer, _ = inference.get_model(
-                        model_name, device_map=self.device_map,
+                        model_path, device_map=self.device_map,
                     )
                     from manyagents.schemas.reasoning import TaskInfo
 
