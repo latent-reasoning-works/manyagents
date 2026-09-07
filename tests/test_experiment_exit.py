@@ -148,7 +148,7 @@ def test_wandb_summary_handles_missing_measurements(monkeypatch):
     assert row == ("single", None, 0.5, 1.0, 1, 1)
 
 
-def test_gvector_metric_failure_propagates(monkeypatch):
+def test_gvector_metric_failure_is_recorded(monkeypatch):
     import sys
     from types import ModuleType
     from unittest.mock import Mock
@@ -158,8 +158,12 @@ def test_gvector_metric_failure_propagates(monkeypatch):
     metrics_module = ModuleType("manylatents.metrics")
     metrics_module.compute_metric = Mock(side_effect=RuntimeError("metric exploded"))
     monkeypatch.setitem(sys.modules, "manylatents.metrics", metrics_module)
-    with pytest.raises(RuntimeError, match="metric exploded"):
-        compute_gvector(np.zeros((3, 2)), ["participation_ratio"])
+    g = compute_gvector(np.zeros((3, 2)), ["participation_ratio"])
+    assert g.measurements["participation_ratio"] == {
+        "status": "failed", "reason": "RuntimeError: metric exploded",
+    }
+    with pytest.raises(ValueError, match="participation_ratio.*metric exploded"):
+        g.metric_value("participation_ratio")
 
 
 def test_latex_summary_handles_undefined_metrics():
