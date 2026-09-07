@@ -13,24 +13,36 @@ Adapters, orchestration, LLM metrics, reasoning trace capture. Anything that coo
 - Reward computation, G-vectors, RL training (Geomancy)
 - Cluster configs, SLURM launchers (Shop)
 
+## Install and Hardware
+
+Python **3.11–3.12**. `uv sync` provides core API adapters, mock, and local HF generation without manylatents. Core is large: accelerate pulls in torch. `uv sync --extra traces` adds manylatents hooks/geometry, segmentation, and datasets (GSM8K). `uv sync --extra vllm` enables plain vLLM generation without HF replay or manylatents; use both extras for vLLM traces. `--extra full` includes traces, W&B, and Biomni, but excludes vLLM.
+
+Activate `.venv` before bare CLI commands, or use `uv run --no-sync` to preserve installed extras. Laptop: API clients, Ollama server, mock, small HF models. GPU: large HF models and vLLM.
+
+vLLM defaults to `dtype: bfloat16` with no fallback and assumes bf16-capable hardware (Ampere or newer). On V100/RTX 8000, use `agent.config.dtype=float16` with `agent=vllm`; preserve the default for Ampere+.
+
 ## Entry Points
 
 ```bash
 # CLI — primary interface
-manyagents experiment=geometric_reasoning
+manyagents experiment=geometric_reasoning 'active_agents=[mock]'
 
 # With specific agents
-manyagents experiment=geometric_reasoning active_agents=[claude,openai]
+manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 
 # Extract reasoning traces
-manyagents experiment=trace_extraction agent=claude
+manyagents experiment=trace_extraction agent=claude agent.config.capture_hidden_states=false
 
 # Multirun sweep
-manyagents --multirun agent=claude,openai,hf experiment=invariance_full
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
 
 # SLURM submission
-manyagents experiment=geometric_reasoning cluster=mila_remote resources=api
+manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]' cluster=mila_remote resources=api
 ```
+
+The sweep loads HF directly into `agents.local_llm` to avoid the legacy alias losing its config under Hydra packaging. Outside Mila, add `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B`. Its output override retains every job’s results. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`, not `hf` or `mock`. `--cfg job` only inspects config and is incompatible with `--multirun`. Bare `manyagents` lists available experiments and exits nonzero. The cluster command requires a separately installed Shop launcher and site access.
+
+The following manylatents example requires `--extra traces` and an embedding matrix `X`:
 
 ```python
 from manyagents.adapters import ManyLatentsAdapter
@@ -38,7 +50,7 @@ from manyagents.adapters import ManyLatentsAdapter
 adapter = ManyLatentsAdapter()
 adapter.setup_metrics(["participation_ratio", "trustworthiness"])
 result = await adapter.execute_cached(algorithm="UMAP", params={"n_neighbors": 15}, data=X)
-# result.scores: {"participation_ratio": 12.4, "trustworthiness": 0.92}
+# result["scores"] maps metric names to values (or None on metric failure).
 ```
 
 ## Core Abstractions
@@ -50,9 +62,9 @@ class AgentAdapter(ABC):
     async def run(self, task_config: dict[str, Any], input_files: dict[str, Path]) -> AdapterResult
 ```
 
-`AdapterResult` is a TypedDict: `{success: bool, summary: str, output_files?: dict, metadata?: dict, embeddings?: dict}`.
+`AdapterResult` is a TypedDict: `{success: bool, summary: str, output_files: dict, metadata?: dict, embeddings?: dict}`.
 
-Helper methods: `success_response()`, `error_response()`, `save_text_output()`, `save_json_output()`.
+Helper methods: `success_response()`, `error_response()`, `save_response()`, `save_text_output()`, `save_json_output()`.
 
 **Type system** — schema-on-read, not rigid dataclasses:
 
@@ -69,11 +81,11 @@ Validation at boundaries via `validate_task_config()`, `validate_adapter_result(
 from manyagents.schemas import ReasoningTrace
 
 trace.steps        # list[ReasoningStep] — each CoT step (thinking, output, tool_call)
-trace.model_info   # ModelInfo — model, temperature, tokens
-trace.task_info    # TaskInfo — prompt, dataset, experiment
+trace.model        # ModelInfo — model identity and generation settings
+trace.task         # TaskInfo — task ID, prompt, dataset
 ```
 
-Two storage layers: metadata (JSONL per trace) + tensors (npz per model).
+Adapter results put trace JSON at `result["output_files"]["trace"]` and optional NPZ states at `result["output_files"]["hidden_states"]`. Load JSON with `ReasoningTrace.from_json(path.read_text())`. `TraceStore` writes `traces.jsonl` (one trace per line) plus optional `tensors/{trace_id}.npz`.
 
 ## Config System
 
@@ -86,26 +98,30 @@ experiment/     geometric_reasoning, invariance_golden, invariance_full,
 cluster/        local, mila_remote, mila_slurm, mila_sweep
 logger/         minimal, wandb
 prompts/        discrete, geometric_reasoning/...
-main.yaml       Root config (merges all groups)
+main.yaml       Root config (loads selected groups)
 ```
 
 ## Adapters
 
-11 adapters behind `AgentAdapter`:
+11 adapter classes, 12 registry keys behind `AgentAdapter` (including `placeholder`; `local_llm` aliases `hf`). Integration dependencies are loaded at use time:
 
-| Adapter | Type | Hidden-state traces | Import guard |
+| Adapter | Type | Hidden-state traces | Requirements |
 |---------|------|---------------------|-------------|
-| `ClaudeAdapter` | API | no | always |
-| `OpenAIAdapter` | API | no | always |
-| `OllamaAdapter` | API (local server) | **no — generation only** | always |
-| `HFAdapter` | Local | yes (native) | always (alias: `local_llm`) |
-| `VLLMAdapter` | Local | yes (HF replay) | always (vllm lazy-imported) |
-| `ManyLatentsAdapter` | Python | n/a | optional (`manylatents`) |
-| `CellForgeAdapter` | CLI | n/a | always |
-| `KosmosAdapter` | CLI | n/a | always |
-| `BiomniAdapter` | CLI | n/a | optional (`biomni>=0.0.2`) |
-| `MockAdapter` | Testing | n/a | always |
-| `PlaceholderAdapter` | Stub | n/a | always |
+| `ClaudeAdapter` | API | no | core |
+| `OpenAIAdapter` | API | no | core |
+| `OllamaAdapter` | API (local server) | **no — generation only** | core |
+| `HFAdapter` | Local | yes (native) | core generation; `traces` for capture; alias: `local_llm` |
+| `VLLMAdapter` | Local | yes (HF replay) | `vllm`; add `traces` for replay |
+| `ManyLatentsAdapter` | Python | n/a | `traces` |
+| `CellForgeAdapter` | CLI | n/a | external installation |
+| `KosmosAdapter` | CLI | n/a | external installation |
+| `BiomniAdapter` | In-process Python | no | `full` (`biomni>=0.0.2`) |
+| `MockAdapter` | Testing | n/a | core |
+| `PlaceholderAdapter` | Stub | n/a | core |
+
+Biomni uses `from biomni.agent import A1`, constructs it in-process, and calls `agent.go` via `asyncio.to_thread`. CellForge and Kosmos use subprocesses. All three execute local code with the caller’s environment and permissions: use trusted task configs. Threads provide no process isolation, and timing out the await does not stop a running Biomni thread.
+
+Claude and Biomni default to `claude-opus-5`; OpenAI retains the supported `gpt-4o` ID ([official documentation](https://developers.openai.com/api/docs/models/gpt-4o), checked 2026-09-06).
 
 Get an adapter by name via the registry dict: `from manyagents.adapters import ADAPTER_REGISTRY; ADAPTER_REGISTRY["claude"]()`.
 
@@ -150,11 +166,11 @@ Get an adapter by name via the registry dict: `from manyagents.adapters import A
 - **manyLatents is optional.** Guard with `try/except ImportError`. The adapter handles this.
 - **GlobalHydra clearing** is handled inside `manylatents.api.run()` — do NOT clear it in adapters.
 - **`compute_metric()` returns `float`** since March 2026. Use `compute_metric_detailed()` for per-sample arrays.
-- Run `geomancy/scripts/check_boundaries.sh` to verify all rules.
+- Companion-repo boundary checks require a separate Geomancy checkout; it is not yet public.
 
 ## Gotchas
 
-- **`uv run`, not `python`** — always prefix with `uv run` or activate the venv.
+- **`uv run`, not `python`** — activate the venv or use `uv run --no-sync` after syncing the required extras.
 - **Async adapters** — `run()` is async. Use `asyncio.run()` or `await`.
 - **Schema-on-read** — configs are dicts, not dataclasses. Validate at boundaries only.
 - **`inference.py` is functional** — plain functions, module-level model cache, no classes.
@@ -164,14 +180,14 @@ Get an adapter by name via the registry dict: `from manyagents.adapters import A
 ## Tests
 
 ```bash
-uv run pytest tests/ -v                    # all tests
-uv run pytest tests/test_smoke.py -v       # quick smoke test
-uv run pytest manyagents/adapters/test_adapters.py -v  # adapter tests
+uv run --no-sync pytest -v                           # all tests
+uv run --no-sync pytest tests/test_smoke.py -v       # quick smoke test
+uv run --no-sync pytest manyagents/adapters/test_adapters.py -v  # adapter tests
 ```
 
 ## Pre-push Checklist
 
 ```bash
-uv run pytest tests/ -x -q
-uv run ruff check manyagents/
+uv run --no-sync pytest -x -q
+uv run --no-sync ruff check manyagents/ tests/
 ```

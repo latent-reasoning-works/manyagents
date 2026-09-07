@@ -198,7 +198,7 @@ class OpenAIAdapter(AgentAdapter):
 
         log.info(f"Completed in {response_time:.2f}s, tokens: {tokens['total_tokens']}")
 
-        output_files = {"raw_response": self.save_text_output(content, "response.txt")}
+        output_files = self.save_response(content)
 
         if response_format == "json_object":
             parsed, error = parse_json_safe(content, log)

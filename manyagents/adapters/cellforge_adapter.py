@@ -2,12 +2,13 @@
 
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base import AgentAdapter, AdapterResult
-from manyagents.utils.helpers import run_subprocess, get_python_executable
+from manyagents.utils.helpers import run_subprocess
 
 log = logging.getLogger(__name__)
 
@@ -32,17 +33,26 @@ class CellForgeAdapter(AgentAdapter):
 
     VALID_PHASES = {"task_analysis", "method_design", "code_generation", "all"}
 
+    PRODUCES_TEXT_RESPONSE = False
+
     def __init__(self, cellforge_path: Optional[str] = None):
         """
         Initialize CellForge adapter.
 
         Args:
             cellforge_path: Path to CellForge installation directory.
-                           Defaults to CELLFORGE_PATH environment variable or current directory.
+                           Required here or via CELLFORGE_PATH. Relative paths are
+                           bound to the caller's directory at construction time.
         """
         super().__init__("cellforge")
-        self.cellforge_path = Path(cellforge_path or os.getenv('CELLFORGE_PATH', '.'))
-        self.main_script = self.cellforge_path / "main.py"
+        installation = cellforge_path or os.getenv("CELLFORGE_PATH")
+        if not installation:
+            raise ValueError("Configure cellforge_path or CELLFORGE_PATH explicitly")
+        self.cellforge_path = Path(installation).expanduser().resolve()
+        # Resolve once, including symlinks, independently of any task working_dir.
+        self.main_script = (self.cellforge_path / "main.py").resolve()
+        # Keep the active interpreter (including its venv), without PATH/cwd lookup.
+        self.python_executable = str(Path(sys.executable).absolute())
 
     async def run(
         self,
@@ -101,9 +111,9 @@ class CellForgeAdapter(AgentAdapter):
         timeout = task_config.get("timeout", self.config.timeout)
 
         # Check CellForge installation
-        if not self.main_script.exists():
+        if not self.main_script.is_file():
             raise FileNotFoundError(
-                f"CellForge main.py not found at {self.main_script}. "
+                f"CellForge main.py is not a file at {self.main_script}. "
                 f"Set cellforge_path or CELLFORGE_PATH environment variable."
             )
 
@@ -228,7 +238,7 @@ class CellForgeAdapter(AgentAdapter):
         Returns:
             List of command arguments
         """
-        cmd = [get_python_executable(), str(self.main_script)]
+        cmd = [self.python_executable, str(self.main_script)]
 
         # Add phase argument only if not running all phases
         if phase != "all":
@@ -250,6 +260,6 @@ class CellForgeAdapter(AgentAdapter):
         Returns:
             Version string if available, None otherwise
         """
-        cmd = [get_python_executable(), str(self.main_script), "--version"]
+        cmd = [self.python_executable, str(self.main_script), "--version"]
         result = await run_subprocess(cmd, timeout=5.0)
         return result.stdout.strip() if result.exit_code == 0 and result.stdout.strip() else None

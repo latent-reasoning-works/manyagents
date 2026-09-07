@@ -15,6 +15,7 @@ def small_data():
     return np.random.randn(300, 10)
 
 
+@pytest.mark.requires_manylatents
 def test_execute_sequence_single_step(small_data):
     """Single-step workflow returns 2 G-vectors (raw + result)."""
     from manyagents.workflows.sequence import execute_sequence
@@ -32,6 +33,7 @@ def test_execute_sequence_single_step(small_data):
     assert len(result.workflow) == 1
 
 
+@pytest.mark.requires_manylatents
 def test_execute_sequence_multi_step(small_data):
     """Multi-step workflow returns N+1 G-vectors."""
     from manyagents.workflows.sequence import execute_sequence
@@ -53,6 +55,7 @@ def test_execute_sequence_multi_step(small_data):
     assert result.g_vectors[0].participation_ratio != result.g_vectors[2].participation_ratio
 
 
+@pytest.mark.requires_manylatents
 def test_execute_sequence_saves_embeddings(small_data):
     """Embeddings saved when requested."""
     from manyagents.workflows.sequence import execute_sequence
@@ -74,6 +77,7 @@ def test_execute_sequence_saves_embeddings(small_data):
             assert emb.ndim == 2
 
 
+@pytest.mark.requires_manylatents
 def test_execute_sequence_with_named_dataset():
     """Can load dataset by name (uses smaller subset for speed)."""
     from manyagents.workflows.sequence import execute_sequence

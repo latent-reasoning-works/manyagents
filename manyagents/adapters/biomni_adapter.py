@@ -24,7 +24,7 @@ class BiomniAdapter(AgentAdapter):
         ANTHROPIC_API_KEY: Required for LLM calls
     """
 
-    DEFAULT_LLM = "claude-sonnet-4-20250514"
+    DEFAULT_LLM = "claude-opus-5"
     DEFAULT_TIMEOUT = 3600  # 1 hour
 
     def __init__(self, data_path: Optional[str] = None):
@@ -55,8 +55,8 @@ class BiomniAdapter(AgentAdapter):
 
         Args:
             task_config: Configuration including:
-                - task: str (required) - The biomedical task to perform
-                - llm: str (optional) - LLM model to use (default: claude-sonnet-4-20250514)
+                - task or prompt: str (required) - The biomedical task to perform
+                - llm: str (optional) - LLM model to use (default: claude-opus-5)
                 - data_path: str (optional) - Override data directory path
                 - disable_datalake: bool (optional) - Skip datalake download
                 - timeout: int (optional) - Timeout in seconds
@@ -71,14 +71,14 @@ class BiomniAdapter(AgentAdapter):
         if error := self._check_prerequisites():
             return self.error_response(error, error_type="missing_api_key")
 
-        if "task" not in task_config:
+        if "task" not in task_config and "prompt" not in task_config:
             return self.error_response(
-                "BiomniAdapter requires 'task' parameter in task_config",
+                "BiomniAdapter requires 'task' or 'prompt' parameter in task_config",
                 error_type="missing_parameter"
             )
 
         # Extract configuration
-        task = task_config["task"]
+        task = task_config.get("task", task_config.get("prompt"))
         llm = task_config.get("llm", self.DEFAULT_LLM)
         data_path = Path(task_config.get("data_path", self.data_path))
         timeout = task_config.get("timeout", self.DEFAULT_TIMEOUT)
@@ -101,12 +101,20 @@ class BiomniAdapter(AgentAdapter):
                 timeout=timeout
             )
 
+            # A1.go returns (self.log, message.content); only final content is
+            # an answer. The log includes the user prompt and must not be scored.
+            content = result[1] if isinstance(result, tuple) and len(result) == 2 else result
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError(
+                    f"Biomni final content must be nonempty text, got {type(content).__name__}"
+                )
+
             execution_time = time.time() - start_time
-            output_file = self.save_text_output(str(result), "biomni_output.txt")
+            output_files = self.save_response(content, "biomni_output.txt")
 
             return self.success_response(
                 summary=f"Biomni completed task in {execution_time:.1f}s",
-                output_files={"result": output_file},
+                output_files=output_files,
                 metadata={
                     "llm": llm,
                     "execution_time": execution_time,
@@ -123,7 +131,7 @@ class BiomniAdapter(AgentAdapter):
 
         except ImportError as e:
             return self.error_response(
-                f"Biomni not installed: {e}. Run 'uv add biomni'",
+                f"Biomni not installed: {e}. Run 'uv sync --extra full'",
                 error_type="import_error",
                 details=str(e)
             )

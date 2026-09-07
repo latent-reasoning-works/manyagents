@@ -32,6 +32,8 @@ class ManyLatentsAdapter(AgentAdapter):
     - Cached metric execution for fast RL loops
     """
 
+    PRODUCES_TEXT_RESPONSE = False
+
     def __init__(self):
         super().__init__("manylatents")
 

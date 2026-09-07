@@ -5,13 +5,8 @@ agent:
   name: hf
   adapter: hf
   config:
-    model: llama-3.1-8b
+    # Cluster aliases are optional; Hub IDs and paths work on any host.
+    available_models: ${oc.select:available_models}
+    model: Qwen/Qwen3-0.6B
     temperature: 0.1
     max_new_tokens: 2000
-  available_models:
-    llama-3.3-70b: /network/weights/llama.var/llama_3.3/Llama-3.3-70B-Instruct
-    llama-3.1-70b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-70B-Instruct
-    llama-3.1-8b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct
-    llama-3.1-405b-fp8: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-405B-Instruct-FP8
-    olmo-7b: /network/weights/olmo/OLMo-7B-Twin-2T
-    olmoe-1b-7b: /network/weights/olmoe/OLMoE-1B-7B-0924

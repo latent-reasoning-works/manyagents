@@ -16,6 +16,7 @@ from manyagents.adapters.metric_registry import MetricRegistry, get_metric_regis
 class TestMetricRegistryGeneration:
     """Test metric registry generation from manyLatents configs."""
 
+    @pytest.mark.requires_manylatents
     def test_scan_metric_configs(self):
         """Test scanning manyLatents metric configs."""
         import manylatents
@@ -52,6 +53,7 @@ class TestMetricRegistryGeneration:
             assert '.' in metric_info['class'], \
                 f"{metric_name} class path invalid: {metric_info['class']}"
 
+    @pytest.mark.requires_manylatents
     def test_generate_metric_registry(self):
         """Test full registry generation."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -92,6 +94,7 @@ class TestMetricRegistryGeneration:
                 loaded = json.load(f)
                 assert loaded == registry, "Saved JSON doesn't match in-memory registry"
 
+    @pytest.mark.requires_manylatents
     def test_generate_registry_version_based_skip(self):
         """Test that registry skips regeneration if version matches."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -115,6 +118,7 @@ class TestMetricRegistryGeneration:
             # Registries should match
             assert registry1 == registry2
 
+    @pytest.mark.requires_manylatents
     def test_generate_registry_force_regeneration(self):
         """Test force regeneration."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -156,6 +160,7 @@ class TestMetricRegistry:
         # Cleanup
         shutil.rmtree(tmpdir)
 
+    @pytest.mark.requires_manylatents
     def test_load_registry(self, temp_registry):
         """Test loading registry."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -164,6 +169,7 @@ class TestMetricRegistry:
         assert registry.metadata is not None
         assert 'manylatents_version' in registry.metadata
 
+    @pytest.mark.requires_manylatents
     def test_list_metrics(self, temp_registry):
         """Test listing metrics."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -184,6 +190,7 @@ class TestMetricRegistry:
         # Total should match
         assert len(all_metrics) == len(embedding_metrics) + len(dataset_metrics) + len(module_metrics)
 
+    @pytest.mark.requires_manylatents
     def test_get_metric_info(self, temp_registry):
         """Test getting metric info."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -207,6 +214,7 @@ class TestMetricRegistry:
         assert isinstance(info['defaults'], dict)
         assert isinstance(info['partial'], bool)
 
+    @pytest.mark.requires_manylatents
     def test_get_metric_info_not_found(self, temp_registry):
         """Test getting info for non-existent metric."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -214,6 +222,7 @@ class TestMetricRegistry:
         with pytest.raises(KeyError, match="not found"):
             registry.get_metric_info('nonexistent_metric_xyz')
 
+    @pytest.mark.requires_manylatents
     def test_get_metric_class(self, temp_registry):
         """Test getting metric class for instantiation."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -235,6 +244,7 @@ class TestMetricRegistry:
 
             assert callable(metric_class)
 
+    @pytest.mark.requires_manylatents
     def test_get_metric_class_caching(self, temp_registry):
         """Test that metric classes are cached."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -249,6 +259,7 @@ class TestMetricRegistry:
             # Should be same object (cached)
             assert class1 is class2
 
+    @pytest.mark.requires_manylatents
     def test_get_defaults(self, temp_registry):
         """Test getting default parameters."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -260,6 +271,7 @@ class TestMetricRegistry:
             # ParticipationRatio should have defaults
             assert len(defaults) > 0
 
+    @pytest.mark.requires_manylatents
     def test_get_group(self, temp_registry):
         """Test getting metric group."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -268,6 +280,7 @@ class TestMetricRegistry:
             group = registry.get_group('participation_ratio')
             assert group == 'embedding'
 
+    @pytest.mark.requires_manylatents
     def test_contains(self, temp_registry):
         """Test __contains__ method."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -277,6 +290,7 @@ class TestMetricRegistry:
             assert metric_name in registry
             assert 'nonexistent_metric_xyz' not in registry
 
+    @pytest.mark.requires_manylatents
     def test_repr(self, temp_registry):
         """Test string representation."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -285,6 +299,7 @@ class TestMetricRegistry:
         assert 'MetricRegistry' in repr_str
         assert 'metrics=' in repr_str
 
+    @pytest.mark.requires_manylatents
     def test_singleton_pattern(self):
         """Test get_metric_registry singleton."""
         # This test requires a real registry to exist
@@ -311,6 +326,7 @@ class TestMetricRegistryIntegration:
         yield registry_path
         shutil.rmtree(tmpdir)
 
+    @pytest.mark.requires_manylatents
     def test_registry_has_sufficient_metrics(self, temp_registry):
         """Test that registry has at least 25 metrics (success criterion)."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -319,6 +335,7 @@ class TestMetricRegistryIntegration:
         assert metrics_count >= 25, \
             f"Registry should have at least 25 metrics, found {metrics_count}"
 
+    @pytest.mark.requires_manylatents
     def test_known_metrics_present(self, temp_registry):
         """Test that known important metrics are present."""
         registry = MetricRegistry(registry_path=temp_registry)
@@ -339,6 +356,7 @@ class TestMetricRegistryIntegration:
                     f"Available: {', '.join(all_metrics[:10])}..."
                 )
 
+    @pytest.mark.requires_manylatents
     def test_metric_instantiation(self, temp_registry):
         """Test that we can actually get metric classes from registry."""
         registry = MetricRegistry(registry_path=temp_registry)

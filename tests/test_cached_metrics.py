@@ -1,7 +1,6 @@
 """Tests for cached metrics setup in ManyLatentsAdapter."""
 
 import pytest
-import numpy as np
 from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
 
 
@@ -60,6 +59,7 @@ class TestMetricSpecParsing:
 class TestMetricSetup:
     """Test metric setup and caching functionality."""
 
+    @pytest.mark.requires_manylatents
     def test_setup_simple_metrics(self):
         """Test setting up metrics with simple names."""
         adapter = ManyLatentsAdapter()
@@ -84,6 +84,7 @@ class TestMetricSetup:
         # Check group
         assert pr_cache['group'] == 'embedding'
 
+    @pytest.mark.requires_manylatents
     def test_setup_with_overrides(self):
         """Test setting up metrics with parameter overrides."""
         adapter = ManyLatentsAdapter()
@@ -97,6 +98,7 @@ class TestMetricSetup:
         lid_cache = adapter._metric_cache['local_intrinsic_dimensionality']
         assert lid_cache['params']['k'] == 30
 
+    @pytest.mark.requires_manylatents
     def test_setup_with_global_overrides(self):
         """Test global parameter overrides."""
         adapter = ManyLatentsAdapter()
@@ -110,6 +112,7 @@ class TestMetricSetup:
         pr_cache = adapter._metric_cache['participation_ratio']
         assert pr_cache['params']['return_per_sample'] is False
 
+    @pytest.mark.requires_manylatents
     def test_setup_mixed_specs(self):
         """Test mixing simple names and override dicts."""
         adapter = ManyLatentsAdapter()
@@ -129,6 +132,7 @@ class TestMetricSetup:
         lid_cache = adapter._metric_cache['local_intrinsic_dimensionality']
         assert lid_cache['params']['k'] == 30
 
+    @pytest.mark.requires_manylatents
     def test_setup_unknown_metric(self):
         """Test that unknown metric raises error."""
         adapter = ManyLatentsAdapter()
@@ -136,6 +140,7 @@ class TestMetricSetup:
         with pytest.raises(KeyError, match="not found"):
             adapter.setup_metrics(['nonexistent_metric_xyz'])
 
+    @pytest.mark.requires_manylatents
     def test_registry_lazy_loading(self):
         """Test that registry is lazy-loaded."""
         adapter = ManyLatentsAdapter()
@@ -149,6 +154,7 @@ class TestMetricSetup:
         # Now registry should be loaded
         assert adapter._metric_registry is not None
 
+    @pytest.mark.requires_manylatents
     def test_multiple_setup_calls(self):
         """Test calling setup_metrics multiple times."""
         adapter = ManyLatentsAdapter()
@@ -169,6 +175,7 @@ class TestMetricSetup:
 class TestCachedMetricCallability:
     """Test that cached metrics are callable and work correctly."""
 
+    @pytest.mark.requires_manylatents
     def test_cached_metrics_are_callable(self):
         """Test that all cached metrics are callable."""
         adapter = ManyLatentsAdapter()
@@ -183,6 +190,7 @@ class TestCachedMetricCallability:
             metric_obj = metric_cache['object']
             assert callable(metric_obj), f"Metric '{metric_name}' is not callable"
 
+    @pytest.mark.requires_manylatents
     def test_metric_cache_structure(self):
         """Test that metric cache has expected structure."""
         adapter = ManyLatentsAdapter()
@@ -206,15 +214,10 @@ class TestCachedMetricCallability:
         # Check group is valid
         assert pr_cache['group'] in ['embedding', 'dataset', 'module']
 
+    @pytest.mark.requires_manylatents
     def test_parameter_priority(self):
         """Test parameter merge priority: defaults < global < specific."""
         adapter = ManyLatentsAdapter()
-
-        # Get default value for n_neighbors
-        from manyagents.adapters.metric_registry import MetricRegistry
-        registry = MetricRegistry()
-        defaults = registry.get_defaults('participation_ratio')
-        default_n_neighbors = defaults.get('n_neighbors', 25)
 
         # Setup with both global and specific overrides
         adapter.setup_metrics(
@@ -237,6 +240,7 @@ class TestCachedMetricCallability:
 class TestMetricSetupIntegration:
     """Integration tests with actual metric registry."""
 
+    @pytest.mark.requires_manylatents
     def test_setup_with_real_metrics(self):
         """Test setup with actual metrics from registry."""
         adapter = ManyLatentsAdapter()
@@ -255,6 +259,7 @@ class TestMetricSetupIntegration:
         for metric_name in embedding_metrics:
             assert metric_name in adapter._metric_cache
 
+    @pytest.mark.requires_manylatents
     def test_metric_groups_preserved(self):
         """Test that metric groups are preserved correctly."""
         adapter = ManyLatentsAdapter()
@@ -282,6 +287,7 @@ class TestMetricSetupIntegration:
         if module_metrics:
             assert adapter._metric_cache[module_metrics[0]]['group'] == 'module'
 
+    @pytest.mark.requires_manylatents
     def test_empty_metric_list(self):
         """Test setup with empty metric list."""
         adapter = ManyLatentsAdapter()
@@ -291,6 +297,7 @@ class TestMetricSetupIntegration:
         assert adapter._metric_cache == {}
         assert adapter._cached_mode is True  # Still enabled
 
+    @pytest.mark.requires_manylatents
     def test_duplicate_metrics(self):
         """Test that duplicate metrics in list are handled."""
         adapter = ManyLatentsAdapter()

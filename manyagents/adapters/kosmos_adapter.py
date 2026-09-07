@@ -30,6 +30,8 @@ class KosmosAdapter(AgentAdapter):
     DEFAULT_TASKS_PER_CYCLE = 10
     DEFAULT_TIMEOUT = 3600  # 1 hour
 
+    PRODUCES_TEXT_RESPONSE = False
+
     def __init__(
         self,
         kosmos_python: str | None = None,

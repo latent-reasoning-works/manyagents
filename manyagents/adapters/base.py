@@ -4,15 +4,16 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, TypedDict, Union
+from typing import Any, Dict, Optional, NotRequired, TypedDict
 
 
 class AdapterResult(TypedDict):
     """Standardized result format for all adapters."""
     success: bool
     summary: str
-    output_files: Dict[str, Union[Path, list]]
-    metadata: Dict[str, Any]
+    output_files: Dict[str, Any]
+    metadata: NotRequired[Dict[str, Any]]
+    embeddings: NotRequired[Dict[str, Any]]
 
 
 @dataclass
@@ -24,6 +25,8 @@ class AdapterConfig:
 
 class AgentAdapter(ABC):
     """Abstract base class for wrapping external agents with standardized interface."""
+
+    PRODUCES_TEXT_RESPONSE: bool = True
 
     def __init__(self, name: str, config: Optional[AdapterConfig] = None):
         self.name = name
@@ -41,7 +44,7 @@ class AgentAdapter(ABC):
     def success_response(
         self,
         summary: str,
-        output_files: Optional[Dict[str, Union[Path, list]]] = None,
+        output_files: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> AdapterResult:
         """
@@ -106,6 +109,10 @@ class AgentAdapter(ABC):
         filepath = self.output_dir / filename
         filepath.write_text(content)
         return filepath
+
+    def save_response(self, content: str, filename: str = "response.txt") -> Dict[str, Any]:
+        """Save response text under the standard evaluation output key."""
+        return {"raw_response": self.save_text_output(content, filename)}
 
     def save_json_output(self, data: Any, filename: str) -> Path:
         """

@@ -20,7 +20,8 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 from .metrics.extractor import extract_methods, check_ground_truth_match
-from .metrics.llm import compute_system_metrics, generate_summary_table
+from .metrics.llm import compute_system_metrics, format_metric, generate_summary_table
+from .types import validate_adapter_result
 from .utils.logger import ExperimentLogger, NullLogger
 
 log = logging.getLogger(__name__)
@@ -30,19 +31,27 @@ log = logging.getLogger(__name__)
 # RESULT BUILDERS
 # ============================================================================
 
-def _extract_raw_response(output_files: Dict[str, Any]) -> Optional[str]:
-    """Extract raw response text from adapter output files."""
-    if 'raw_response' not in output_files:
-        return None
-    response_path = output_files['raw_response']
-    if isinstance(response_path, Path):
-        return response_path.read_text()
-    return str(response_path)
+def _extract_raw_response(output_files: Dict[str, Any]) -> str:
+    """Read a response Path or inline string, rejecting missing or empty text."""
+    response = output_files.get('raw_response')
+    response_type = type(response).__name__
+    if isinstance(response, Path):
+        try:
+            content = response.read_text()
+        except (OSError, UnicodeError) as e:
+            raise ValueError(f"Unreadable raw_response ({response_type}): {e}") from e
+    elif isinstance(response, str):
+        content = response
+    else:
+        raise ValueError(f"raw_response must be Path or str, got {response_type}")
+    if not content.strip():
+        raise ValueError(f"raw_response is empty or whitespace-only ({response_type})")
+    return content
 
 
-def _build_success_result(raw_response: Optional[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
+def _build_success_result(raw_response: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     """Build a success result dict from raw response."""
-    extraction = extract_methods(raw_response or '') if raw_response else {}
+    extraction = extract_methods(raw_response)
     return {
         'success': True,
         'raw_response': raw_response,
@@ -108,16 +117,16 @@ def _save_results(experiment_results: Dict[str, Any], output_dir: Path, experime
     log.info(f"Summary saved to {summary_path}")
 
 
-def _print_summary(metrics: Dict[str, Dict[str, float]]) -> None:
+def _print_summary(metrics: Dict[str, Dict[str, float | None]]) -> None:
     """Print metrics summary to console."""
     print("\n" + "=" * 60)
     print("EXPERIMENT RESULTS")
     print("=" * 60)
     for agent_name, m in metrics.items():
         print(f"\n{agent_name}:")
-        print(f"  Jaccard Similarity: {m.get('jaccard_similarity_across_prompts', 0):.2f}")
-        print(f"  Ground Truth Match: {m.get('ground_truth_match_rate', 0):.1%}")
-        print(f"  Clustering-for-All: {m.get('clustering_for_all_rate', 0):.1%}")
+        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')}")
+        print(f"  Ground Truth Match: {format_metric(m.get('ground_truth_match_rate'), '.1%')}")
+        print(f"  Clustering-for-All: {format_metric(m.get('clustering_for_all_rate'), '.1%')}")
 
 
 # ============================================================================
@@ -169,6 +178,10 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
     output_dir = Path(cfg.output_dir)
     store_dir = output_dir / "traces"
 
+    summary = {
+        "total_traces": 0, "with_tensors": 0, "traces_failed": 0,
+        "backends": {}, "datasets": {}, "success": 0, "failure": 0, "unjudged": 0,
+    }
     with TraceStore(store_dir) as store:
         for i, task in enumerate(tasks):
             log.info(f"[{i + 1}/{len(tasks)}] {task['task_id']}")
@@ -182,26 +195,48 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
             task_config["logic_type"] = task.get("logic_type")
 
             try:
-                result = await adapter.run(task_config, {})
-                if result["success"] and "trace" in result.get("output_files", {}):
-                    trace_path = result["output_files"]["trace"]
-                    trace = ReasoningTrace.from_json(Path(trace_path).read_text())
+                result = validate_adapter_result(await adapter.run(task_config, {}), adapter_name)
+                if not result["success"]:
+                    raise ValueError(result.get("summary", "Adapter failed"))
+                output_files = result.get("output_files", {})
+                if "trace" not in output_files:
+                    raise ValueError("Successful adapter result has no trace")
+                trace = ReasoningTrace.from_json(Path(output_files["trace"]).read_text())
 
-                    hs = None
-                    if "hidden_states" in result.get("output_files", {}):
-                        hs_path = result["output_files"]["hidden_states"]
-                        hs = dict(np.load(hs_path, allow_pickle=False))
+                hs = None
+                if "hidden_states" in output_files:
+                    with np.load(output_files["hidden_states"], allow_pickle=False) as tensors:
+                        hs = dict(tensors)
+                    if hs and not all(
+                        array.ndim >= 2 and array.size > 0
+                        and np.issubdtype(array.dtype, np.floating)
+                        and np.isfinite(array).all()
+                        for array in hs.values()
+                    ):
+                        raise ValueError("Hidden states must be nonempty, finite float state arrays (at least 2D)")
+                    if not hs:
+                        hs = None
+                if task_config.get("capture_hidden_states", False) and hs is None:
+                    raise ValueError("capture_hidden_states requested but trace has no tensors")
 
-                    store.append(trace, hidden_states=hs)
-                    log.info(f"  -> {len(trace.steps)} steps, {trace.output_tokens} tokens")
-                else:
-                    log.warning(f"  SKIPPED: {result.get('summary', 'unknown error')}")
+                store.append(trace, hidden_states=hs)
+                summary["total_traces"] += 1
+                summary["with_tensors"] += int(hs is not None)
+                backend = trace.model.backend.value
+                summary["backends"][backend] = summary["backends"].get(backend, 0) + 1
+                dataset = trace.task.dataset
+                summary["datasets"][dataset] = summary["datasets"].get(dataset, 0) + 1
+                outcome = "unjudged" if trace.success is None else "success" if trace.success else "failure"
+                summary[outcome] += 1
+                log.info(f"  -> {len(trace.steps)} steps, {trace.output_tokens} tokens")
             except Exception as e:
-                log.error(f"  FAILED: {e}", exc_info=True)
+                summary["traces_failed"] += 1
+                log.error(f"  {adapter_name}/{task['task_id']} FAILED: {e}", exc_info=True)
 
-    store_r = TraceStore(store_dir, mode="r")
-    summary = store_r.summary()
     log.info(f"Trace extraction complete: {json.dumps(summary, indent=2)}")
+    if summary["total_traces"] == 0:
+        log.error(f"Trace extraction failed: 0 persisted, {summary['traces_failed']} failed")
+        raise SystemExit(1)
 
     return {"experiment_id": f"trace_{dataset_name}", "summary": summary, "output_dir": str(store_dir)}
 
@@ -241,14 +276,14 @@ async def _run_agent(agent_config: DictConfig, prompt: str, system_prompt: str) 
     task_config['system_prompt'] = system_prompt
 
     try:
-        result = await adapter.run(task_config, {})
+        result = validate_adapter_result(await adapter.run(task_config, {}), adapter_name)
         if result['success']:
             raw_response = _extract_raw_response(result.get('output_files', {}))
             return _build_success_result(raw_response, result.get('metadata', {}))
         return _build_error_result(result.get('summary', 'Unknown error'))
     except Exception as e:
         log.error(f"Error running {adapter_name}: {e}", exc_info=True)
-        return _build_error_result(str(e))
+        return _build_error_result(f"{adapter_name}: {e}")
 
 
 def _get_agent_config(cfg: DictConfig, agent_name: str) -> DictConfig:
@@ -259,9 +294,39 @@ def _get_agent_config(cfg: DictConfig, agent_name: str) -> DictConfig:
 
 async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
     """Run the full experiment based on Hydra config."""
+    if "active_agents" not in cfg and not OmegaConf.select(cfg, "trace_extraction.enabled", default=False):
+        available = sorted(path.stem for path in (Path(__file__).parent / "configs/experiment").glob("*.yaml"))
+        raise SystemExit(
+            "No experiment selected. Run: manyagents experiment=<name>. Available: "
+            + ", ".join(available)
+        )
+
     # Dispatch to trace extraction if configured
     if hasattr(cfg, "trace_extraction") and getattr(cfg.trace_extraction, "enabled", False):
         return await _run_trace_extraction(cfg)
+
+    from manyagents.adapters import ADAPTER_REGISTRY
+
+    if not cfg.active_agents:
+        log.error("active_agents must not be empty")
+        raise SystemExit(1)
+    unknown_agents = [name for name in cfg.active_agents if name not in cfg.agents]
+    if unknown_agents:
+        log.error(
+            f"Unknown active agent(s): {', '.join(unknown_agents)}. "
+            f"Configured agents: {', '.join(cfg.agents)}"
+        )
+        raise SystemExit(1)
+
+    for agent_name in cfg.active_agents:
+        adapter_name = _get_agent_config(cfg, agent_name).adapter
+        adapter_class = ADAPTER_REGISTRY.get(adapter_name)
+        if adapter_class is None:
+            log.error(f"Unknown adapter: {adapter_name} (agent '{agent_name}')")
+            raise SystemExit(1)
+        if not adapter_class.PRODUCES_TEXT_RESPONSE:
+            log.error(f"Adapter '{adapter_name}' does not produce text responses; cannot evaluate '{agent_name}'")
+            raise SystemExit(1)
 
     experiment_id = f"{cfg.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     logger = _create_logger(cfg, experiment_id)
@@ -285,7 +350,7 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
         # Build and run agent tasks in parallel
         tasks = [
             (name, _run_agent(_get_agent_config(cfg, name), prompt_text, cfg.system_prompt))
-            for name in cfg.active_agents if name in cfg.agents
+            for name in cfg.active_agents
         ]
 
         gathered = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
@@ -329,4 +394,9 @@ async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
         log.info(f"wandb run: {wandb_url}")
 
     _print_summary(metrics)
+    if not any(m['prompts_evaluated'] for m in metrics.values()):
+        log.error("No successful evaluations")
+        for agent_name, m in metrics.items():
+            log.error(f"{agent_name}: {m['prompts_evaluated']} succeeded, {m['prompts_failed']} failed")
+        raise SystemExit(1)
     return experiment_results

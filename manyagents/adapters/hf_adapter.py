@@ -22,11 +22,11 @@ log = logging.getLogger(__name__)
 class HFAdapter(AgentAdapter):
     """Adapter for HuggingFace transformers inference.
 
-    Supports loading models from local paths (e.g., /network/weights/)
+    Supports loading models from local paths (e.g., /models/)
     or HuggingFace Hub IDs (e.g., Qwen/Qwen3-4B).
     """
 
-    DEFAULT_MODEL = "llama-3.1-8b"
+    DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
     DEFAULT_MAX_NEW_TOKENS = 2000
     DEFAULT_TEMPERATURE = 0.1
 
@@ -60,11 +60,13 @@ class HFAdapter(AgentAdapter):
         segmentation = task_config.get("segmentation", "delimiter")
 
         try:
-            model_path = inference.resolve_model_path(model_name)
+            model_path = inference.resolve_model_path(
+                model_name, task_config.get("available_models"),
+            )
 
             def _run_inference():
                 model, tokenizer, _ = inference.get_model(
-                    model_name, device_map=self.device_map,
+                    model_path, device_map=self.device_map,
                 )
 
                 if build_trace or capture_hidden_states:
@@ -115,9 +117,7 @@ class HFAdapter(AgentAdapter):
             log.info(f"Inference completed in {response_time:.2f}s")
 
             unique_id = uuid.uuid4().hex[:8]
-            output_files: Dict[str, Any] = {
-                "raw_response": self.save_text_output(content, f"response_{unique_id}.txt"),
-            }
+            output_files: Dict[str, Any] = self.save_response(content, f"response_{unique_id}.txt")
 
             if result["hidden_states"] is not None:
                 npz_path = self.output_dir / f"hidden_states_{unique_id}.npz"
@@ -145,7 +145,7 @@ class HFAdapter(AgentAdapter):
 
         except ImportError as e:
             return self.error_response(
-                f"Missing dependency: {e}. Run 'uv add transformers accelerate'",
+                f"Missing dependency: {e}",
                 error_type="import_error",
                 details=str(e),
             )

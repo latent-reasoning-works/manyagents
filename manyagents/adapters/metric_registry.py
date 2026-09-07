@@ -13,24 +13,23 @@ class MetricRegistry:
     """Registry for looking up manyLatents metric and algorithm information."""
 
     def __init__(self, registry_path: Optional[Path] = None, auto_regenerate: bool = True):
-        if registry_path is None:
-            registry_path = Path(__file__).parent / 'data' / 'metric_registry.json'
-
-        if auto_regenerate:
+        # No implicit cache in site-packages: the default registry lives in memory.
+        self.registry_path = Path(registry_path) if registry_path is not None else None
+        if self.registry_path is None:
+            from ._generate_metric_registry import generate_metric_registry
+            self._registry = generate_metric_registry()
+        elif auto_regenerate:
             try:
                 from ._generate_metric_registry import generate_metric_registry
-                generate_metric_registry(registry_path, force=False)
-            except Exception as e:
-                logger.warning(f"Auto-regeneration failed: {e}. Using existing registry if available.")
+                self._registry = generate_metric_registry(self.registry_path, force=False)
+            except Exception:
+                if not self.registry_path.is_file():
+                    raise
+                logger.warning("Auto-regeneration failed; loading configured registry", exc_info=True)
+                self._registry = json.loads(self.registry_path.read_text())
+        else:
+            self._registry = json.loads(self.registry_path.read_text())
 
-        if not registry_path.exists():
-            raise FileNotFoundError(
-                f"Metric registry not found at {registry_path}. "
-                f"Run: python -m manyagents.adapters._generate_metric_registry"
-            )
-
-        self.registry_path = registry_path
-        self._registry = json.loads(registry_path.read_text())
         self._class_cache: Dict[str, Type] = {}
 
         logger.info(

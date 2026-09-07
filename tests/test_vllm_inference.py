@@ -9,6 +9,7 @@ the same trajectory geometry as backend="hf". It runs on CPU with a tiny
 random-init GPT-2 — no GPU, no network, no vllm install.
 """
 
+import os
 from unittest.mock import patch, MagicMock
 
 import numpy as np
@@ -250,7 +251,6 @@ def test_build_sampling_params_overrides_win():
 # Model defaults to Qwen/Qwen3-0.6B; override with MANYAGENTS_TEST_VLLM_MODEL.
 # ---------------------------------------------------------------------------
 
-import os
 
 # Run vLLM's engine in-process: pytest initializes CUDA in the parent (e.g. the
 # torch.cuda.is_available() probe below), and vLLM v1's default forked EngineCore

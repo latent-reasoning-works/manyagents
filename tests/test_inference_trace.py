@@ -1,10 +1,16 @@
 # tests/test_inference_trace.py
 """Tests for inference.py trace building and segmentation functions."""
 
+from unittest.mock import patch, MagicMock
+
 import numpy as np
 import pytest
 
 from manyagents.inference import (
+    extract_trace,
+    get_model,
+    clear_model_cache,
+    _model_cache,
     build_reasoning_trace,
     segment_by_delimiter,
     segment_by_tags,
@@ -36,7 +42,7 @@ def test_build_reasoning_trace_basic():
         text="First, 2+2=4\nThe answer is 4",
         gen_metadata=gen_metadata,
         model_name="olmo-7b",
-        model_path="/network/weights/olmo/OLMo-7B-Twin-2T",
+        model_path="/models/olmo-7b",
         task=task,
         step_defs=step_defs,
         generation_config={"max_new_tokens": 512, "temperature": 0.7},
@@ -45,7 +51,7 @@ def test_build_reasoning_trace_basic():
     assert isinstance(trace, ReasoningTrace)
     assert trace.model.name == "olmo-7b"
     assert trace.model.backend == ModelBackend.LOCAL
-    assert trace.model.path == "/network/weights/olmo/OLMo-7B-Twin-2T"
+    assert trace.model.path == "/models/olmo-7b"
     assert len(trace.steps) == 2
     assert trace.steps[0].kind == StepKind.THINKING
     assert trace.steps[1].kind == StepKind.OUTPUT
@@ -81,9 +87,6 @@ def test_build_reasoning_trace_single_step():
 # ---------------------------------------------------------------------------
 # extract_trace tests
 # ---------------------------------------------------------------------------
-
-from unittest.mock import patch, MagicMock
-from manyagents.inference import extract_trace
 
 
 def _mock_generate_with_hidden_states(model, tokenizer, prompt, **kwargs):
@@ -389,6 +392,7 @@ except ImportError:
 _scipy_required = pytest.mark.skipif(not _has_scipy, reason="scipy required")
 
 
+@pytest.mark.requires_manylatents
 @_scipy_required
 def test_segment_by_velocity_basic():
     """segment_by_velocity finds the cosine-distance spike at a sharp transition.
@@ -433,6 +437,7 @@ def test_segment_by_velocity_short_text():
     assert steps[0]["kind"] == "output"
 
 
+@pytest.mark.requires_manylatents
 @_scipy_required
 def test_segment_hybrid_with_tags():
     """segment_hybrid uses tags for structure + velocity within thinking."""
@@ -451,6 +456,7 @@ def test_segment_hybrid_with_tags():
     assert len(output_steps) >= 1
 
 
+@pytest.mark.requires_manylatents
 @_scipy_required
 def test_segment_hybrid_no_tags_falls_back_to_velocity():
     """segment_hybrid falls back to velocity when no tags present."""
@@ -550,8 +556,6 @@ def test_build_reasoning_trace_falls_back_without_kind():
 # ---------------------------------------------------------------------------
 # Model cache tests
 # ---------------------------------------------------------------------------
-
-from manyagents.inference import get_model, clear_model_cache, _model_cache
 
 
 def test_model_cache_stores_and_retrieves(monkeypatch):
