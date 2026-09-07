@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -23,7 +23,8 @@ class TransformationTrajectory:
         workflow: List of algorithm specs (dicts with 'algorithm' and 'params').
         dataset_name: Name of the dataset used.
         g_vectors: G-vectors at each step. Length = len(workflow) + 1
-            (includes raw data at index 0).
+            (includes raw data at index 0). Each vector retains named measurement
+            outcomes, including failure reasons and unrequested metrics.
         executed_at: When the workflow was executed.
         total_time_seconds: Total execution time.
         per_step_times: Time taken for each step. Length = len(workflow) + 1
@@ -47,11 +48,16 @@ class TransformationTrajectory:
         Returns:
             List of dicts with metric deltas. Length = len(g_vectors) - 1.
             Each dict has keys: beta_0, beta_1, participation_ratio, local_intrinsic_dim.
+
+        Raises:
+            ValueError: Either step has failed or unavailable measurements.
         """
         result = []
         for i in range(1, len(self.g_vectors)):
             prev = self.g_vectors[i - 1]
             curr = self.g_vectors[i]
+            prev.require_complete()
+            curr.require_complete()
             result.append({
                 "beta_0": curr.beta_0 - prev.beta_0,
                 "beta_1": curr.beta_1 - prev.beta_1,
