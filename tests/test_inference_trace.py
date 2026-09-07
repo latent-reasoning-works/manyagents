@@ -18,6 +18,7 @@ from manyagents.inference import (
     segment_hybrid,
     segment,
     split_into_steps,
+    pool_hidden_states_per_step,
 )
 from manyagents.schemas.reasoning import (
     ModelBackend, StepKind, TaskInfo, ReasoningTrace,
@@ -68,7 +69,7 @@ def test_build_reasoning_trace_single_step():
     """Single-step trace marks the only step as OUTPUT."""
     task = TaskInfo("gsm8k", "train_0", "Q?")
     step_defs = [{"text": "Answer", "token_start": 0, "token_end": 3}]
-    gen_metadata = {"input_length": 5, "n_new_tokens": 3, "generation_time_ms": 100, "layers_captured": []}
+    gen_metadata = {"input_length": 5, "n_new_tokens": 5, "generation_time_ms": 100, "layers_captured": []}
 
     trace = build_reasoning_trace(
         text="Answer",
@@ -154,9 +155,9 @@ def test_extract_trace_fallback_single_step():
     def _gen_no_newlines(model, tokenizer, prompt, **kwargs):
         return {
             "text": "The answer is simply four",
-            "token_hidden_states": np.random.randn(5, 1, 64).astype(np.float32),
+            "token_hidden_states": np.random.randn(6, 1, 64).astype(np.float32),
             "input_length": 10,
-            "n_new_tokens": 5,
+            "n_new_tokens": 6,
             "generation_time_ms": 200,
             "layers_captured": [32],
         }
@@ -247,15 +248,15 @@ def test_extract_traces_batch_generates_all_in_one_call():
         calls["overrides"] = kwargs.get("sampling_overrides")
         return [{
             "text": f"Step.\nThe answer is {i}.",
-            "prompt_token_ids": [0, 1], "completion_token_ids": [2, 3, 4],
-            "input_length": 2, "n_new_tokens": 3, "generation_time_ms": 10,
+            "prompt_token_ids": [0, 1], "completion_token_ids": [2, 3, 4, 5, 6],
+            "input_length": 2, "n_new_tokens": 5, "generation_time_ms": 10,
             "finish_reason": "stop",
         } for i in range(len(formatted))]
 
     def _fake_forward(model, full_ids, *, input_length, layers=None):
         return {
-            "token_hidden_states": np.random.randn(3, 1, 8).astype(np.float32),
-            "input_length": input_length, "n_new_tokens": 3,
+            "token_hidden_states": np.random.randn(5, 1, 8).astype(np.float32),
+            "input_length": input_length, "n_new_tokens": 5,
             "generation_time_ms": 5, "layers_captured": [-1],
         }
 
@@ -381,6 +382,32 @@ def test_segment_by_tags_empty_after_think():
 
     assert len(steps) >= 1
     assert all(s["kind"] == "thinking" for s in steps)
+
+
+@pytest.mark.parametrize("prefix", ["", "Repeat. "])
+def test_tag_segments_track_repeated_occurrences(prefix):
+    text = prefix + "<think>Repeat. Repeat.\nRepeat.</think>Done."
+    tok = MagicMock()
+    tok.encode = lambda text, **kwargs: list(text)
+    steps = segment_by_tags(text, tok)
+    cursor = text.index("<think>") + len("<think>")
+    for step in steps[:3]:
+        cursor = text.index("Repeat.", cursor) + len("Repeat.")
+        assert step["token_end"] == cursor
+        assert step["token_start"] < step["token_end"]
+    states = np.arange(len(text), dtype=float).reshape(-1, 1, 1)
+    pooled = pool_hidden_states_per_step(states, steps)
+    assert len(np.unique(pooled)) == 4
+
+
+@pytest.mark.parametrize("start,end,n_tokens", [
+    (1, 1, 3), (2, 1, 3), (-1, 2, 3), (0, 4, 3), (3, 4, 3), (0, 0, 0),
+])
+def test_pool_rejects_invalid_intervals(start, end, n_tokens):
+    with pytest.raises(ValueError, match="Invalid pooling interval"):
+        pool_hidden_states_per_step(
+            np.ones((n_tokens, 1, 2)), [{"token_start": start, "token_end": end}],
+        )
 
 
 try:
