@@ -136,6 +136,10 @@ vLLM trace replay was verified finite on an L40S: float16 `token_level` arrays h
 
 CellForge and Kosmos execute local subprocesses with the caller's environment. Biomni imports `A1` from `biomni.agent` in-process and runs `agent.go` through `asyncio.to_thread`; a thread is not process isolation, and an async timeout does not terminate the running thread. These integrations execute local code with the caller's permissions and are not for untrusted task configs.
 
+CellForge requires an explicit installation directory via `CellForgeAdapter(cellforge_path="/path/to/CellForge")` or `CELLFORGE_PATH`. Its absolute `main.py` path is bound when the adapter is created; task `working_dir` controls the execution directory.
+
+**Timeout is not a reliable termination bound.** Subprocess cleanup kills only the immediate child, descendants can survive, and cleanup itself can wait without a second deadline. Biomni work can continue running and spending after cancellation. Kosmos environment inheritance, `run_subprocess` process-group cleanup, and Biomni cancellation improvements are deferred to 0.3.0; trusted inputs do not prevent hangs or continued spending.
+
 ## Documentation and development
 
 - [Running Experiments](docs/running_experiments.md): local execution, traces, GPU requirements, and cluster prerequisites

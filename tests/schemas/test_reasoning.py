@@ -21,7 +21,7 @@ from manyagents.schemas.reasoning import (
 def _make_trace(**overrides) -> ReasoningTrace:
     """Helper: build a minimal valid trace."""
     defaults = dict(
-        model=ModelInfo("olmo-7b", ModelBackend.LOCAL, path="/network/weights/olmo/OLMo-7B-Twin-2T"),
+        model=ModelInfo("olmo-7b", ModelBackend.LOCAL, path="/models/olmo-7b"),
         task=TaskInfo("gsm8k", "train_001", "What is 2+2?", expected_answer="4", domain="math"),
         steps=[
             ReasoningStep(0, "I need to add 2 and 2.", StepKind.THINKING, token_count=8),
@@ -49,7 +49,7 @@ def test_trace_json_roundtrip():
     assert loaded.trace_id == trace.trace_id
     assert loaded.model.name == "olmo-7b"
     assert loaded.model.backend == ModelBackend.LOCAL
-    assert loaded.model.path == "/network/weights/olmo/OLMo-7B-Twin-2T"
+    assert loaded.model.path == "/models/olmo-7b"
     assert loaded.steps[0].kind == StepKind.THINKING
     assert loaded.steps[1].kind == StepKind.OUTPUT
     assert loaded.success is True

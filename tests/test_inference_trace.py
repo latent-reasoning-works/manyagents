@@ -42,7 +42,7 @@ def test_build_reasoning_trace_basic():
         text="First, 2+2=4\nThe answer is 4",
         gen_metadata=gen_metadata,
         model_name="olmo-7b",
-        model_path="/network/weights/olmo/OLMo-7B-Twin-2T",
+        model_path="/models/olmo-7b",
         task=task,
         step_defs=step_defs,
         generation_config={"max_new_tokens": 512, "temperature": 0.7},
@@ -51,7 +51,7 @@ def test_build_reasoning_trace_basic():
     assert isinstance(trace, ReasoningTrace)
     assert trace.model.name == "olmo-7b"
     assert trace.model.backend == ModelBackend.LOCAL
-    assert trace.model.path == "/network/weights/olmo/OLMo-7B-Twin-2T"
+    assert trace.model.path == "/models/olmo-7b"
     assert len(trace.steps) == 2
     assert trace.steps[0].kind == StepKind.THINKING
     assert trace.steps[1].kind == StepKind.OUTPUT
