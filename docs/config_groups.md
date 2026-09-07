@@ -1,249 +1,94 @@
 # Hydra Configuration Groups
 
-manyAgents uses [Hydra](https://hydra.cc/) for composable configuration. This guide explains how config groups work and how to combine them.
-
-## Overview
-
-Config groups are directories under `manyagents/configs/` that contain related configuration options. When you run manyAgents, you select one option from each group to compose your final configuration.
+Configs live under `manyagents/configs/`. The root `main.yaml` loads local execution and an optional experiment; select an experiment to run:
 
 ```bash
-# Example: Compose experiment + cluster + resources
-manyagents experiment=geometric_reasoning cluster=mila_remote resources=api
+manyagents experiment=test_wandb
 ```
 
-## Config Groups
+## Groups
 
-### `experiment/`
+| Group | Role | Examples |
+|-------|------|----------|
+| `experiment/` | Prompts, expected methods, active agents, output settings | `test_wandb`, `geometric_reasoning`, `invariance_full`, `trace_extraction` |
+| `agent/` | Adapter and model settings | `claude`, `openai`, `hf`, `vllm`, `ollama`, `mock`, `biomni`, legacy `local_llm` aliases |
+| `cluster/` | Local or site-specific launchers | `local`, `mila_remote`, `mila_slurm`, `mila_sweep` |
+| `resources/` | Launcher allocation/setup overrides | `cpu`, `gpu`, `api`, `local_llm` |
+| `logger/` | Logging configuration fragments | `minimal`, `wandb` |
+| `prompts/` | Prompt configuration fragments | `discrete`, `trajectory`, `geometric_reasoning/` |
 
-Defines **what** to run - scenarios, agents, prompts, and expected outputs.
+The existence of a group does not mean every experiment loads it. Override a selected group; use an explicit defaults entry when creating an experiment.
 
-| Config | Purpose |
-|--------|---------|
-| `geometric_reasoning` | 3×3 matrix: 3 biology domains × 3 information conditions |
-| `test_wandb` | Quick test with mock adapter |
-| `invariance_golden` | Minimal 4-scenario test |
-| `invariance_full` | Complete scenario sweep |
+## Named evaluation agents
 
-**Key fields**:
+For example, `geometric_reasoning.yaml` contains:
+
 ```yaml
-name: geometric_reasoning_suite
-active_agents: [local_llm]           # Which agents to query
-scenarios:                            # Prompts with ground truth
-  immunology_A:
-    text: "..."
-    expected_geometry: discrete_clusters
-    ground_truth_methods: [leiden, louvain]
+defaults:
+  - /agent@agents.local_llm: local_llm
+  - /agent@agents.claude: claude
+  - /agent@agents.openai: openai
+  - /agent@agents.mock: mock
+  - _self_
 ```
 
-### `agent/`
+An agent file itself has an `agent:` key:
 
-Configures **AI systems** - model selection, temperature, API settings.
-
-| Config | Purpose |
-|--------|---------|
-| `claude` | Anthropic Claude (Sonnet) |
-| `openai` | OpenAI GPT-4 |
-| `local_llm` | Local Llama 3.1 8B |
-| `local_llm_70b` | Local Llama 3.3 70B |
-| `mock` | Testing without API calls |
-
-**Key fields**:
 ```yaml
 agent:
   name: claude
   adapter: claude
   config:
-    model: claude-sonnet-4-20250514
-    temperature: 0.1
-    max_tokens: 4000
+    model: claude-opus-5
+    temperature: 0.0
+    max_tokens: 2000
 ```
 
-### `cluster/`
-
-Defines **where** code runs - local machine or remote cluster.
-
-| Config | Purpose |
-|--------|---------|
-| `local` | Default. Runs on current machine |
-| `mila_remote` | Submits to Mila SLURM via SSH |
-
-**Key fields** (mila_remote):
-```yaml
-hydra:
-  mode: MULTIRUN
-  launcher:
-    _target_: shop.hydra.launchers.RemoteSlurmLauncher
-    ssh_hostname: login.server.mila.quebec
-    remote_dir: $SCRATCH/manyAgents
-    conda_env: manyagents
-```
-
-### `resources/`
-
-Defines **what hardware** is needed - CPU, memory, GPU.
-
-| Config | Purpose |
-|--------|---------|
-| `cpu` | 4 CPUs, 16GB RAM, high parallelism (64) |
-| `gpu` | 1 GPU, 4 CPUs, 32GB RAM, lower parallelism (16) |
-| `api` | Minimal compute, propagates API keys, throttled (50) |
-
-**Key fields** (api):
-```yaml
-hydra:
-  launcher:
-    cpus_per_task: 2
-    mem: 8G
-    array_parallelism: 50  # Prevent API rate limits
-    setup_commands:
-      - export OPENAI_API_KEY='${oc.env:OPENAI_API_KEY}'
-      - export ANTHROPIC_API_KEY='${oc.env:ANTHROPIC_API_KEY}'
-```
-
-## How Configs Compose
-
-Hydra merges configs in order, with later configs overriding earlier ones:
-
-```
-main.yaml (base)
-    ↓
-cluster/local.yaml (default)
-    ↓
-experiment/geometric_reasoning.yaml
-    ↓
-resources/api.yaml (if specified)
-    ↓
-CLI overrides
-```
-
-### The `defaults` Mechanism
-
-Each config can specify defaults that pull in other configs:
-
-```yaml
-# experiment/geometric_reasoning.yaml
-defaults:
-  - /agent@agents.local_llm: local_llm    # Import agent config
-  - /agent@agents.claude: claude
-  - /agent@agents.openai: openai
-  - /agent@agents.mock: mock
-  - _self_                                 # Then apply this file
-```
-
-The `@agents.X` syntax places the imported config under the `agents.X` key.
-
-### Override Priority
-
-From lowest to highest priority:
-
-1. `defaults` in config files
-2. Config group selections (`experiment=X`)
-3. CLI overrides (`wandb.enabled=true`)
-
-## Common Patterns
-
-### Run Locally (Default)
+Loading it as `@agents.claude` places settings under **`agents.claude.agent.config`**. `active_agents` selects the named entries to execute:
 
 ```bash
-# Uses cluster=local implicitly
-manyagents experiment=geometric_reasoning
+manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
+manyagents experiment=geometric_reasoning 'active_agents=[claude]' agents.claude.agent.config.model=claude-opus-5
 ```
 
-### Run on Cluster with API Agents
+An evaluation experiment needs `name`, `prompts`, `system_prompt`, `active_agents`, `agents`, and `output_dir`. The runner unwraps the nested `agent` key. `prompts` is a mapping of prompt IDs to `text`, expected `ground_truth_methods`, and optional `failure_indicators` and metadata.
+
+## Sweeping existing names
 
 ```bash
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-
-manyagents experiment=geometric_reasoning \
-    cluster=mila_remote \
-    resources=api \
-    active_agents=[claude,openai]
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
 ```
 
-### Run on Cluster with Local LLMs
+Each comma-separated list is a separate job. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`; neither `hf` nor `mock` is an active-agent name there. `agent=claude,openai,hf` fails because this experiment loads named packages, not the plain `agent` group.
+
+The legacy `local_llm` config includes `hf` through nested defaults with a global package directive. Under `@agents.local_llm`, its HF settings land outside that named entry. Use `agent@agents.local_llm=hf` to load HF directly into the existing name. This changes only composition for the command; no config-group restructuring is required. Outside Mila, add `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B`.
+
+`output_dir=${hydra:runtime.output_dir}` stores results under each numbered Hydra job directory, avoiding collisions in the experiment's timestamp-based output directory. Quote list and interpolation overrides to protect them from the shell.
+
+## Single-agent trace extraction
+
+`trace_extraction` loads `/agent: hf`, so it uses the shorter **`agent.config`** path:
 
 ```bash
-manyagents experiment=geometric_reasoning \
-    cluster=mila_remote \
-    resources=gpu
+manyagents experiment=trace_extraction agent=hf agent.config.model=Qwen/Qwen3-0.6B
+manyagents experiment=trace_extraction agent=vllm agent.config.dtype=float16
+manyagents experiment=trace_extraction agent=claude agent.config.capture_hidden_states=false
 ```
 
-### Enable WandB Logging
+The first command requires `traces`; vLLM replay requires both `traces` and `vllm`; Claude requires its API key and the dataset dependency from `traces`. API adapters cannot capture hidden states.
+
+vLLM defaults assume bf16-capable hardware (Ampere or newer), with no fallback. Use `agent.config.dtype=float16` on V100/RTX 8000; the bfloat16 default is intentionally unchanged.
+
+## Inspecting config and enabling logging
 
 ```bash
-manyagents experiment=geometric_reasoning wandb.enabled=true
+# Inspect one configuration; does not execute the runner
+manyagents experiment=test_wandb --cfg job
+
+# Requires the wandb extra and authentication
+manyagents experiment=test_wandb wandb.enabled=true 'wandb.tags=[test,mock]'
 ```
 
-### Override Agent Settings
+`--cfg job` cannot be combined with `--multirun`. Use the CLI execution tests to validate runnable examples.
 
-```bash
-# Use a different model
-manyagents experiment=geometric_reasoning \
-    agents.claude.agent.config.model=claude-opus-4-20250514
-```
-
-### View Resolved Config
-
-```bash
-# See final merged config
-manyagents experiment=geometric_reasoning --cfg job
-
-# See Hydra-specific config
-manyagents experiment=geometric_reasoning cluster=mila_remote --cfg hydra
-```
-
-## Gotchas
-
-### 1. Order of `defaults` Matters
-
-Later defaults override earlier ones. Always put `_self_` last if you want your config to take precedence.
-
-### 2. Nested Agent Configs
-
-Agent configs are nested under `agents.{name}.agent` due to how Hydra's `@` syntax works:
-
-```yaml
-# Access with:
-cfg.agents.claude.agent.config.model
-# Not:
-cfg.agent.config.model
-```
-
-### 3. Environment Variables in Remote Jobs
-
-Environment variables like `${oc.env:USER}` are resolved at submission time (on your laptop), not at execution time (on the cluster). Use `setup_commands` for cluster-side environment setup.
-
-### 4. `optional` Keyword
-
-Use `optional` for configs that may not be selected:
-
-```yaml
-defaults:
-  - optional resources: null  # OK if resources not specified
-```
-
-## Creating New Configs
-
-### New Experiment
-
-1. Create `configs/experiment/my_experiment.yaml`
-2. Define `name`, `scenarios`, `active_agents`
-3. Add agent defaults if using agents not in `main.yaml`
-
-### New Resource Profile
-
-1. Create `configs/resources/my_resources.yaml`
-2. Use `@package _global_` directive
-3. Override `hydra.launcher.*` settings
-
-### New Cluster Target
-
-1. Create `configs/cluster/my_cluster.yaml`
-2. Set `hydra.launcher._target_` to appropriate launcher
-3. Configure SSH and SLURM settings
-
-## See Also
-
-- [Running Experiments](running_experiments.md) - Execution guide
-- [shop/remote-jobs](https://github.com/latent-reasoning-works/shop) - Launcher documentation
+Defaults merge in order; `_self_` determines when the containing file's fields apply, and explicit value overrides apply afterward. Remote launcher configs and resource profiles may add environment interpolations that resolve on the submitting machine. Review the site-specific YAML before using a `mila_*` profile; remote launchers require Shop and cluster access. See [Running Experiments](running_experiments.md).

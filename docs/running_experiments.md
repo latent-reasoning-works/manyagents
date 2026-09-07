@@ -1,198 +1,98 @@
 # Running Experiments
 
-This guide covers how to run manyAgents experiments, from local debugging to large-scale cluster deployments.
+Use Python 3.11–3.12 and run `uv sync` from a checkout. Activate `.venv`, or prefix commands with `uv run --no-sync` so your installed extras remain available.
 
-## Quick Start
-
-### Local Execution (Default)
+## Local evaluation
 
 ```bash
-# Run geometric reasoning experiment with default agent
-manyagents experiment=geometric_reasoning
+# Two mock prompts: no API keys, GPU, or model download
+manyagents experiment=test_wandb
 
-# Use mock adapter for testing (no API calls)
-manyagents experiment=geometric_reasoning active_agents=[mock]
+# Nine prompts: 3 domains × 3 information conditions
+manyagents experiment=geometric_reasoning 'active_agents=[mock]'
 
-# Enable wandb logging
-manyagents experiment=geometric_reasoning wandb.enabled=true
+# Real API evaluation: export ANTHROPIC_API_KEY and OPENAI_API_KEY first
+manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
+
+# Local HF generation, loading directly into the named experiment package
+manyagents experiment=geometric_reasoning 'active_agents=[local_llm]' agent@agents.local_llm=hf agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B
 ```
 
-### What Happens
+Each active agent runs every prompt. The runner reads response text, extracts method recommendations, checks expected methods, and computes aggregate scores. Ground-truth match rate up is good; cross-prompt Jaccard and clustering-for-all up are bad in this geometry evaluation. Undefined measurements appear as `null` in JSON and `n/a` in summaries. Zero successful evaluations exit nonzero; partial failures remain in the results.
 
-1. Hydra loads and merges configs
-2. For each scenario, each active agent is queried
-3. Responses are parsed for method recommendations
-4. Metrics are computed (Jaccard similarity, ground truth match)
-5. Results saved to `outputs/` directory
+Bare `manyagents` exits with an experiment-selection hint and all available experiment names. `active_agents` must be nonempty and refer to names defined by the selected experiment. A registry key alone does not add an agent to an experiment.
 
-## Scaling to Cluster
-
-### When to Use Cluster Deployment
-
-Use cluster deployment when:
-
-- **Large sweeps**: 100+ scenario/agent combinations
-- **GPU requirements**: Running local LLMs (Llama 3.1, etc.)
-- **Long-running jobs**: Experiments taking hours
-- **API rate limits**: Need throttled parallel execution
-
-### Configuration Pattern
-
-Combine `cluster` + `resources` config groups:
+## Sweeps
 
 ```bash
-manyagents experiment=X cluster=mila_remote resources=Y
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
 ```
 
-| `resources=` | Use Case |
-|--------------|----------|
-| `cpu` | Data processing, light agents |
-| `gpu` | Local LLM inference |
-| `api` | Claude/OpenAI (propagates API keys) |
+This launches three jobs, each evaluating four prompts with one agent. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`; it does not define `hf` or `mock`. Sweep `active_agents`, not `agent`. The named package override loads HF directly for `local_llm`, avoiding the legacy alias's nested-default packaging issue. Outside Mila, append `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B` (or another accessible model).
 
-### Example: Run with API Agents on Cluster
+The output override keeps separate `results.json` and `summary.md` files in Hydra's numbered job directories. Without it, the experiment's second-resolution output name can collide across fast jobs.
+
+To inspect a single configuration without running it:
 
 ```bash
-# Set API keys locally (they'll be propagated to cluster)
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-
-manyagents experiment=geometric_reasoning \
-    cluster=mila_remote \
-    resources=api \
-    active_agents=[claude,openai]
+manyagents experiment=geometric_reasoning 'active_agents=[mock]' --cfg job
 ```
 
-### Example: Run with Local LLMs on Cluster
+`--cfg job` is not an execution check. Hydra rejects it when combined with `--multirun`. `tests/test_cli_commands.py` executes the documented sweeps in-process with mock adapters and checks every job's responses, scores, and saved files.
+
+## Generation and traces
+
+Core includes local HF generation without manylatents, but it is a large install: accelerate brings in torch. Add `--extra traces` for local hidden-state hooks, segmentation, and datasets such as GSM8K. Plain vLLM generation needs `--extra vllm` and uses neither an HF model nor manylatents. vLLM trace replay needs both extras and loads an HF model to recover states. `--extra full` includes traces, W&B, and Biomni, but excludes vLLM.
 
 ```bash
-manyagents experiment=geometric_reasoning \
-    cluster=mila_remote \
-    resources=gpu
+# HF hidden-state traces; requires --extra traces and downloads GSM8K/model
+manyagents experiment=trace_extraction agent=hf agent.config.model=Qwen/Qwen3-0.6B
+
+# Claude text traces only; requires API key and datasets from --extra traces
+manyagents experiment=trace_extraction agent=claude agent.config.capture_hidden_states=false
+
+# GPU traces; requires --extra traces --extra vllm
+manyagents experiment=trace_extraction agent=vllm
+
+# V100 / RTX 8000: explicitly choose float16
+manyagents experiment=trace_extraction agent=vllm agent.config.dtype=float16
 ```
 
-## WandB Integration
+**Hardware:** laptops suit API clients, a local Ollama server, mock, and small HF models; large HF models and vLLM need suitable GPUs. `configs/agent/vllm.yaml` hardcodes `dtype: bfloat16` with no fallback, assuming bf16-capable hardware (Ampere or newer). Mila's V100 and RTX 8000 are pre-Ampere; use `agent.config.dtype=float16` there. GPU verification job **10689474** failed on an RTX 8000 with the bf16 default. The default remains unchanged to preserve numerics on Ampere+.
 
-### Mass Experiment Tracking
+With `agent=vllm`, the dtype override is `agent.config.dtype`. When loading vLLM into an experiment package, use the corresponding `agents.<name>.agent.config.dtype` path instead.
 
-When running hundreds of jobs, you want them grouped logically in wandb. The `mila_remote` cluster config automatically sets:
+vLLM replay was verified finite on an L40S, producing float16 `token_level (n_tokens, 1, d_model)` and `pooled_steps (n_steps, 1, d_model)` arrays with one captured layer. Replay storage dtype is separate from the generation engine dtype. Ollama and API backends expose no hidden states.
 
-```yaml
-wandb:
-  group: ${oc.env:SLURM_ARRAY_JOB_ID}      # All array jobs grouped
-  id: ${oc.env:SLURM_JOB_ID}_${oc.env:SLURM_ARRAY_TASK_ID}
-  name: task_${oc.env:SLURM_ARRAY_TASK_ID}  # Unique per task
+## Output files
+
+Evaluation saves the complete response text, per-prompt results, config, and metrics in `<output_dir>/results.json`, plus a human-readable `<output_dir>/summary.md`. Individual adapter response paths are temporary working outputs and may be overwritten; use the aggregated results as the evaluation record.
+
+Trace extraction instead writes:
+
+```text
+<output_dir>/traces/
+├── traces.jsonl
+└── tensors/
+    └── <trace_id>.npz
 ```
 
-This means a 100-job sweep appears as one collapsible group in wandb, not 100 separate runs.
+`TraceStore` appends one JSON record per trace. Counts cover only traces newly persisted by the current run. Zero persisted traces exit nonzero; requested hidden states must be present as nonempty, finite float arrays.
 
-### Enabling WandB
+## Optional logging and cluster execution
+
+Install `uv sync --extra wandb` (or `--extra full`) and configure W&B authentication, then add `wandb.enabled=true`. Keep any other required extras in the same sync command.
 
 ```bash
-# Add to any command
-manyagents experiment=X wandb.enabled=true
-
-# With custom tags
-manyagents experiment=X wandb.enabled=true wandb.tags=[geometric,icml]
+manyagents experiment=test_wandb wandb.enabled=true 'wandb.tags=[smoke,mock]'
 ```
 
-### Logged Data
-
-The ExperimentLogger tracks:
-
-| Metric | Description |
-|--------|-------------|
-| `{agent}/{scenario}/success` | Did the agent respond? |
-| `{agent}/{scenario}/method_count` | Methods extracted |
-| `{agent}/{scenario}/ground_truth_match` | Correct for geometry? |
-| `summary/{agent}/jaccard` | Cross-scenario similarity |
-| `results_summary` | Table for paper figures |
-| `failure_analysis` | When wrong method recommended |
-
-## API Key Handling
-
-### How Keys Propagate to Remote Jobs
-
-The `resources/api.yaml` config includes setup commands that export your local API keys to the cluster environment:
-
-```yaml
-setup_commands:
-  - export OPENAI_API_KEY='${oc.env:OPENAI_API_KEY}'
-  - export ANTHROPIC_API_KEY='${oc.env:ANTHROPIC_API_KEY}'
-```
-
-**Security Note**: Keys are written to the SLURM job script. Ensure your cluster storage has appropriate permissions.
-
-### Local Testing
-
-For local runs, just set the environment variables:
+The `mila_*` cluster profiles are site-specific. Remote execution requires Mila access, SSH/environment setup, and the separately installed Shop launcher; it is not provided by any manyagents extra. With those prerequisites:
 
 ```bash
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-manyagents experiment=geometric_reasoning active_agents=[claude,openai]
+manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]' cluster=mila_remote resources=api
 ```
 
-## Monitoring and Debugging
+Resource profiles select CPU/GPU allocations and launcher settings. The API profile exports local API keys into the job script, so protect that script and its storage. Inspect `manyagents/configs/cluster/` and `manyagents/configs/resources/` for site-specific requirements. Shop is a companion repo, not yet public.
 
-### View Resolved Config Before Running
-
-```bash
-# Show full config
-manyagents experiment=geometric_reasoning cluster=mila_remote --cfg job
-
-# Show Hydra/launcher config
-manyagents experiment=geometric_reasoning cluster=mila_remote --cfg hydra
-```
-
-### Monitor Cluster Jobs
-
-```bash
-# Check job status
-ssh mila 'squeue -u $USER'
-
-# Watch job progress
-watch -n 10 'ssh mila "squeue -u $USER"'
-
-# View job logs
-ssh mila 'cat $SCRATCH/manyAgents/outputs/*/slurm-*.out'
-```
-
-### Common Issues
-
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| "Unknown adapter" | Agent not in registry | Check `active_agents` matches available agents |
-| "API key not found" | Key not exported | Set `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` |
-| Cluster jobs fail immediately | SSH/conda issues | Test `ssh mila 'conda activate manyagents'` |
-| WandB not logging | Not enabled | Add `wandb.enabled=true` |
-
-## Output Structure
-
-Results are saved to the `output_dir` specified in the experiment config:
-
-```
-outputs/geometric_reasoning/
-└── geometric_reasoning_suite_2024-01-09_15-39-09/
-    ├── results.json          # Full experiment data
-    ├── summary.md            # Human-readable table
-    └── raw_responses/        # Per-agent responses
-        ├── claude/
-        │   ├── immunology_A.txt
-        │   └── ...
-        └── openai/
-            └── ...
-```
-
-## Reference
-
-For detailed documentation on:
-
-- **Launcher mechanics, SSH config, SLURM debugging**: See [shop/remote-jobs](https://github.com/latent-reasoning-works/shop/blob/main/docs/guide/remote-jobs.md)
-- **Cluster-specific setup (Mila, DRAC)**: See [shop/cluster-setup](https://github.com/latent-reasoning-works/shop/blob/main/docs/guide/cluster-setup.md)
-- **Config group details**: See [config_groups.md](config_groups.md)
-
-## See Also
-
-- [Config Groups](config_groups.md) - How Hydra configs compose
-- [Adapters](adapters_vs_utils.md) - Agent adapter architecture
+See [Config Groups](config_groups.md) for package paths and [README](../README.md#trusted-execution) for the local-code execution boundary.
