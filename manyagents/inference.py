@@ -1,7 +1,8 @@
 """Functional core for model loading, prompt building, and generation.
 
-Plain functions — no classes, no async, no locking.  Both
-``LocalLLMAdapter`` and ``scripts/extract_traces.py`` delegate here.
+Plain functions — no classes, no async, no locking.  The
+``LocalLLMAdapter``/``VLLMAdapter`` and direct ``extract_trace`` /
+``extract_traces_batch`` callers delegate here.
 """
 
 from __future__ import annotations
