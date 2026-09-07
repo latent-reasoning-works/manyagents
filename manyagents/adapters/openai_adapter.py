@@ -75,6 +75,7 @@ class OpenAIAdapter(AgentAdapter):
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Single chat-completion turn for the agentic loop (provider primitive).
 
@@ -82,6 +83,16 @@ class OpenAIAdapter(AgentAdapter):
         full ``messages`` list and returns the raw assistant turn so the loop can
         append it and feed tool results back. Returns:
             {"message": <assistant message dict>, "tool_calls": [...], "content": str}
+
+        ``reasoning_effort`` is the knob a thinking model needs to stop thinking.
+        Qwen3 through ollama's OpenAI-compatible endpoint reasons by default and
+        puts the reasoning in a separate field, so ``content`` stays EMPTY until
+        the token budget is spent: measured on qwen3:8b with a 400-token budget,
+        9.1 s and no content, unchanged by ``/no_think`` in the prompt. With
+        ``reasoning_effort="none"`` the same prompt answers in 0.9 s. A caller
+        that wants prose back from a local thinking model has no other way to
+        ask for it, hence the passthrough. Omitted from the request when None,
+        so every existing caller sends exactly the bytes it sent before.
         """
         if not self.client:
             raise RuntimeError("OpenAI client not configured (missing API key / base_url)")
@@ -94,6 +105,11 @@ class OpenAIAdapter(AgentAdapter):
         }
         if tools:
             params["tools"] = tools
+        # openai-python takes reasoning_effort directly on chat.completions.create
+        # (2.14.0 here, typed Optional[ReasoningEffort]); anything it does not know
+        # would need extra_body, which nothing asks for yet.
+        if reasoning_effort is not None:
+            params["reasoning_effort"] = reasoning_effort
 
         response = await retry_with_backoff(
             coro_fn=lambda: self.client.chat.completions.create(**params),
@@ -182,7 +198,7 @@ class OpenAIAdapter(AgentAdapter):
 
         log.info(f"Completed in {response_time:.2f}s, tokens: {tokens['total_tokens']}")
 
-        output_files = {"raw_response": self.save_text_output(content, "response.txt")}
+        output_files = self.save_response(content)
 
         if response_format == "json_object":
             parsed, error = parse_json_safe(content, log)
@@ -211,6 +227,10 @@ class OllamaAdapter(OpenAIAdapter):
     this path (ollama does not expose them) — use the vLLM/HF adapters for traces.
     Model names carry ollama tags, e.g. ``qwen3:30b`` (see ``ollama list``).
     Override the endpoint with ``OLLAMA_BASE_URL``.
+
+    This is the path ``chat(reasoning_effort=...)`` exists for: the local
+    thinking models served here answer with empty ``content`` until told not to
+    think. Pass ``reasoning_effort="none"`` when you want prose back.
     """
 
     DEFAULT_BASE_URL = "http://localhost:11434/v1"

@@ -18,6 +18,8 @@ class PlaceholderAdapter(AgentAdapter):
     would be integrated in the future.
     """
 
+    PRODUCES_TEXT_RESPONSE = False
+
     def __init__(self, agent_name: str = "placeholder", processing_time: float = 2.0):
         super().__init__(agent_name)
         self.processing_time = processing_time

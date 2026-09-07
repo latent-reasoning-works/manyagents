@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 class ClaudeAdapter(AgentAdapter):
     """Adapter for Anthropic Claude API integration."""
 
-    DEFAULT_MODEL = "claude-opus-4-8"
+    DEFAULT_MODEL = "claude-opus-5"
     DEFAULT_TEMPERATURE = 0.0
     DEFAULT_MAX_TOKENS = 4096
 
@@ -150,20 +150,21 @@ class ClaudeAdapter(AgentAdapter):
             logger=log,
         )
 
-        text = ""
+        text_blocks = []
         tool_calls: List[Dict[str, Any]] = []
-        assistant_blocks: List[Dict[str, Any]] = []
         for block in response.content:
-            btype = getattr(block, "type", None)
+            btype = block.type if hasattr(block, "type") else block.get("type")
             if btype == "text":
-                text = block.text
-                assistant_blocks.append({"type": "text", "text": block.text})
+                text_blocks.append(block.text if hasattr(block, "text") else block["text"])
             elif btype == "tool_use":
                 tool_calls.append({
-                    "id": block.id,
-                    "name": block.name,
-                    "arguments": json.dumps(block.input or {}),  # loop json.loads() this
+                    "id": block.id if hasattr(block, "id") else block["id"],
+                    "name": block.name if hasattr(block, "name") else block["name"],
+                    "arguments": json.dumps(
+                        (block.input if hasattr(block, "input") else block["input"]) or {}
+                    ),  # loop json.loads() this
                 })
+        text = "\n".join(text_blocks)
 
         # Rebuild the assistant turn in OpenAI shape so the loop can append it and
         # _to_anthropic_messages can round-trip it on the next call.
@@ -224,19 +225,19 @@ class ClaudeAdapter(AgentAdapter):
             )
 
         response_time = time.time() - start_time
-        # Extract text from the first text block (thinking blocks may precede it)
-        content = ""
+        # Join text blocks, skipping thinking blocks.
+        text_blocks = []
         for block in response.content:
             btype = block.type if hasattr(block, "type") else block.get("type")
             if btype == "text":
-                content = block.text if hasattr(block, "text") else block["text"]
-                break
+                text_blocks.append(block.text if hasattr(block, "text") else block["text"])
+        content = "\n".join(text_blocks)
         usage = response.usage
         total_tokens = usage.input_tokens + usage.output_tokens
 
         log.info(f"Completed in {response_time:.2f}s, tokens: {total_tokens}")
 
-        output_files = {"raw_response": self.save_text_output(content, "response.txt")}
+        output_files = self.save_response(content)
 
         if response_format == "json":
             parsed, error = parse_json_safe(content, log)

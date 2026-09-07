@@ -7,6 +7,7 @@ Plain functions — no classes, no async, no locking.  The
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 import re
 import time
@@ -15,8 +16,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from typing import Dict, List, Optional
-
     import torch.nn as nn
 
     from manyagents.schemas.reasoning import ModelBackend, ReasoningTrace, TaskInfo
@@ -144,7 +143,12 @@ def get_vllm_engine(
 
     key = (model_path, tuple(sorted((k, _hashable(v)) for k, v in args.items())))
     if key not in _vllm_cache:
-        from vllm import LLM
+        try:
+            from vllm import LLM
+        except ImportError as e:
+            raise ImportError(
+                "vLLM generation requires the vllm dependencies. Run 'uv sync --extra vllm'."
+            ) from e
 
         log.info(f"vLLM cache miss for '{model}' -> building LLM({model_path})")
         _vllm_cache[key] = LLM(**args)
@@ -157,36 +161,33 @@ def get_vllm_engine(
 # Model resolution
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL_PATHS: dict[str, str] = {
-    "llama-3.3-70b": "/network/weights/llama.var/llama_3.3/Llama-3.3-70B-Instruct",
-    "llama-3.1-70b": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-70B-Instruct",
-    "llama-3.1-8b": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct",
-    "llama-3.1-405b-fp8": "/network/weights/llama.var/llama_3.1/Meta-Llama-3.1-405B-Instruct-FP8",
-    "olmo-7b": "/network/weights/olmo/OLMo-7B-Twin-2T",
-    "olmo-1b": "/network/weights/olmo/OLMo-1B-Twin-2T",
-    "olmoe-1b-7b": "/network/weights/olmoe/OLMoE-1B-7B-0924",
-}
-
-
-def resolve_model_path(model_name: str) -> str:
+def resolve_model_path(
+    model_name: str, available_models: Mapping[str, str] | None = None,
+) -> str:
     """Resolve a short model name to a filesystem path or HF Hub ID.
 
-    Returns the corresponding local path for known aliases, the name
+    Aliases are explicit per-call configuration, never process-global state.
+    Hydra agent configs pass the cluster map through ``config.available_models``.
+    Direct callers can supply the same mapping as the second argument.
+
+    Returns the corresponding path or Hub ID for configured aliases, the name
     itself if it looks like a HF Hub ID (contains ``/``), or an existing
     filesystem path.  Raises ``ValueError`` otherwise.
     """
     from pathlib import Path
 
-    if model_name in DEFAULT_MODEL_PATHS:
-        return DEFAULT_MODEL_PATHS[model_name]
+    aliases = available_models or {}
+    if model_name in aliases:
+        return aliases[model_name]
     if "/" in model_name:
         return model_name  # HF Hub ID (e.g. "Qwen/Qwen3-4B")
     if Path(model_name).exists():
         return model_name
     raise ValueError(
         f"Unknown model '{model_name}'. "
-        f"Available: {list(DEFAULT_MODEL_PATHS.keys())}, "
-        "a HF Hub ID (org/model), or a full path."
+        "Select a cluster config that supplies available_models, provide "
+        "an available_models mapping, or use a HF Hub ID (org/model) or filesystem path. "
+        f"Configured aliases: {sorted(aliases)}."
     )
 
 
@@ -202,7 +203,7 @@ def load_model(
     trust_remote_code: bool = True,
     attn_implementation: str | None = None,
 ):
-    """Load a model and tokenizer via ``HFTrainerModule``.
+    """Load a model and tokenizer, using plain transformers without manylatents.
 
     Args:
         attn_implementation: forwarded to ``HFTrainerConfig`` (e.g. ``"eager"``,
@@ -212,13 +213,27 @@ def load_model(
     Returns ``(network, tokenizer, hf_module)`` where *network* is the
     underlying ``nn.Module`` ready for inference. ``attn_implementation``
     (e.g. ``"sdpa"``, ``"eager"``, ``"flash_attention_2"``) is forwarded to
-    ``HFTrainerConfig`` when set; ``None`` leaves the HF default.
+    the loader when set; ``None`` leaves the HF default. The third return
+    value is ``None`` when manylatents is unavailable.
     """
     import torch
-    from manylatents.lightning.hf_trainer import HFTrainerConfig, HFTrainerModule
-
     if dtype is None:
         dtype = torch.bfloat16
+
+    try:
+        from manylatents.lightning.hf_trainer import HFTrainerConfig, HFTrainerModule
+    except ImportError:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path, trust_remote_code=trust_remote_code,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path, torch_dtype=dtype, device_map=device_map,
+            trust_remote_code=trust_remote_code,
+            attn_implementation=attn_implementation,
+        ).eval()
+        return model, tokenizer, None
 
     cfg_kwargs = dict(
         model_name_or_path=model_path,
@@ -289,7 +304,12 @@ def resolve_layer_specs(
     If *layer_specs* is given, those paths are used directly.  Otherwise the
     model family is auto-detected from *model_name*.
     """
-    from manylatents.lightning.hooks import LayerSpec
+    try:
+        from manylatents.lightning.hooks import LayerSpec
+    except ImportError as e:
+        raise ImportError(
+            "Hidden-state hooks require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     if layer_specs:
         return [LayerSpec(path=p, reduce=reduce) for p in layer_specs]
@@ -361,7 +381,12 @@ def generate_with_hooks(
         }
     """
     import torch
-    from manylatents.lightning.hooks import ActivationExtractor
+    try:
+        from manylatents.lightning.hooks import ActivationExtractor
+    except ImportError as e:
+        raise ImportError(
+            "Hidden-state hooks require the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     inputs = tokenizer(prompt, return_tensors="pt")
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
@@ -429,10 +454,9 @@ def generate_with_hidden_states(
     input_length = input_ids.shape[1]
 
     n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
-    d_model = model.config.hidden_size
 
     layer_indices = (
-        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
+        [layer % n_layers for layer in layers] if layers is not None else list(range(n_layers))
     )
 
     do_sample = temperature > 0
@@ -503,7 +527,12 @@ def build_sampling_params(
     Returns:
         A ``vllm.SamplingParams`` instance.
     """
-    from vllm import SamplingParams
+    try:
+        from vllm import SamplingParams
+    except ImportError as e:
+        raise ImportError(
+            "vLLM generation requires the vllm dependencies. Run 'uv sync --extra vllm'."
+        ) from e
 
     params: dict = dict(
         max_tokens=max_new_tokens,
@@ -668,7 +697,7 @@ def forward_hidden_states(
 
     n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
     layer_indices = (
-        [l % n_layers for l in layers] if layers is not None else list(range(n_layers))
+        [layer % n_layers for layer in layers] if layers is not None else list(range(n_layers))
     )
 
     prenorm_buf: dict = {}
@@ -717,6 +746,159 @@ def forward_hidden_states(
         pre = prenorm_buf["x"][0, input_length - 1:total - 1, :].cpu().float().numpy()
         result["prenorm_hidden_states"] = pre.astype(np.float32)  # (n_new, d_model)
     return result
+
+
+def forward_recurrent_states(
+    model: "nn.Module",
+    input_ids: "list[int]",
+    *,
+    input_length: int,
+    step_module: str,
+    forward_kwargs: "dict | None" = None,
+) -> dict:
+    """Teacher-forced forward capturing per-RECURRENCE-STEP states at each position.
+
+    For recurrent-depth / weight-tied models (Huginn/Raven, Ouro), the interesting
+    depth axis is not ``output_hidden_states`` layers but the successive firings of
+    the shared recurrent block within ONE forward pass. This hooks ``step_module``
+    (dotted path, e.g. the recurrent core) and records its output every time it
+    fires; firing i = recurrence step i. Works unchanged on a non-recurrent model
+    (the module fires once -> n_steps == 1).
+
+    Args:
+        model: HF causal LM (or any module with a ``device`` attribute).
+        input_ids: Full token sequence (prompt + completion).
+        input_length: Prompt-prefix length; states are returned for the
+            completion-aligned positions (same predict-next contract as
+            ``forward_hidden_states``: position ``input_length - 1 + s`` predicts
+            completion token ``s``).
+        step_module: Dotted module path resolved via ``model.get_submodule`` —
+            the block whose successive firings define the recurrence axis.
+        forward_kwargs: Extra kwargs threaded into ``model(...)`` — e.g. the
+            model-specific knob fixing the number of recurrence steps
+            (Huginn: ``num_steps``).
+
+    Returns:
+        ``{step_hidden_states (n_new, n_steps, d_model) float32, n_steps,
+        input_length, n_new_tokens, forward_time_ms, step_module}``.
+    """
+    import torch
+
+    ids = torch.tensor([list(input_ids)], device=model.device)
+    total = ids.shape[1]
+    n_new = total - input_length
+    if not 1 <= input_length <= total:
+        raise ValueError(
+            f"input_length must be in [1, {total}] (got {input_length}); it is "
+            "the prompt-prefix length that supplies the predict-next position."
+        )
+
+    mod = model.get_submodule(step_module)
+    firings: list = []
+
+    def _hook(_m, _args, output):
+        out = output[0] if isinstance(output, tuple) else output
+        firings.append(out[0].detach().float().cpu())  # (T, d)
+
+    handle = mod.register_forward_hook(_hook)
+    start = time.time()
+    try:
+        with torch.no_grad():
+            model(ids, use_cache=False, **(forward_kwargs or {}))
+    finally:
+        handle.remove()
+    forward_time_ms = int((time.time() - start) * 1000)
+
+    if not firings:
+        raise RuntimeError(f"step_module {step_module!r} did not fire during forward")
+    steps = torch.stack(firings)  # (n_steps, T, d)
+    # completion-aligned slice, then (position, step, d) to mirror token_hidden_states
+    sl = steps[:, input_length - 1:total - 1, :].permute(1, 0, 2).numpy()
+    return {
+        "step_hidden_states": sl.astype(np.float32),
+        "n_steps": int(len(firings)),
+        "input_length": int(input_length),
+        "n_new_tokens": int(n_new),
+        "forward_time_ms": forward_time_ms,
+        "step_module": step_module,
+    }
+
+
+def forward_hidden_states_batched(
+    model: "nn.Module",
+    input_ids_batch: "list[list[int]]",
+    *,
+    input_lengths: "list[int]",
+    layers: "list[int] | None" = None,
+) -> "list[dict]":
+    """Batched ``forward_hidden_states``: one padded forward for many sequences.
+
+    Right-pads to the batch max length with an attention mask; causal masking
+    guarantees each sequence's real positions are unaffected by its padding, so
+    per-sequence results match single-sequence ``forward_hidden_states`` exactly
+    (same predict-next contract, same ``token_hidden_states`` shape). Use for
+    throughput-bound panels (the single-sequence loop leaves GPUs mostly idle).
+
+    Returns one result dict per input sequence, in order (``generation_time_ms``
+    reports the SHARED batch forward time in every dict).
+    """
+    import torch
+
+    if len(input_ids_batch) != len(input_lengths):
+        raise ValueError("input_ids_batch and input_lengths must have equal length")
+    totals = [len(s) for s in input_ids_batch]
+    for i, (t, il) in enumerate(zip(totals, input_lengths)):
+        if not 1 <= il <= t:
+            raise ValueError(
+                f"input_lengths[{i}] must be in [1, {t}] (got {il})")
+
+    n_layers = model.config.num_hidden_layers + 1  # +1 for embedding layer
+    layer_indices = (
+        [layer % n_layers for layer in layers] if layers is not None else list(range(n_layers))
+    )
+
+    max_len = max(totals)
+    pad_id = getattr(getattr(model, "config", None), "pad_token_id", None) or 0
+    ids = torch.full((len(totals), max_len), pad_id, dtype=torch.long, device=model.device)
+    mask = torch.zeros((len(totals), max_len), dtype=torch.long, device=model.device)
+    for b, seq in enumerate(input_ids_batch):
+        ids[b, : totals[b]] = torch.tensor(seq, device=model.device)
+        mask[b, : totals[b]] = 1
+
+    start = time.time()
+    with torch.no_grad():
+        outputs = model(
+            ids, attention_mask=mask, output_hidden_states=True, use_cache=False
+        )
+    forward_time_ms = int((time.time() - start) * 1000)
+
+    results = []
+    for b, (total, input_length) in enumerate(zip(totals, input_lengths)):
+        rows = []
+        for pos in range(input_length - 1, total - 1):
+            rows.append(
+                np.stack(
+                    [
+                        outputs.hidden_states[li][b, pos, :].cpu().float().numpy()
+                        for li in layer_indices
+                    ]
+                )
+            )
+        if rows:
+            ths = np.stack(rows)
+        else:
+            d_model = model.config.hidden_size
+            ths = np.empty((0, len(layer_indices), d_model), dtype=np.float32)
+        results.append(
+            {
+                "token_hidden_states": ths.astype(np.float32),
+                "input_length": int(input_length),
+                "n_new_tokens": int(total - input_length),
+                "generation_time_ms": forward_time_ms,
+                "layers_captured": layer_indices,
+            }
+        )
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -871,7 +1053,12 @@ def segment_by_velocity(
 
     Returns a list of ``{"text", "token_start", "token_end", "kind"}``.
     """
-    from scipy.signal import find_peaks
+    try:
+        from scipy.signal import find_peaks
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     token_ids = tokenizer.encode(text, add_special_tokens=False)
     n_tokens = min(len(token_ids), token_hidden_states.shape[0])
@@ -883,7 +1070,12 @@ def segment_by_velocity(
     hs = token_hidden_states[:n_tokens, layer, :]  # (n_tokens, d_model)
 
     # Cosine distance between consecutive tokens
-    from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    try:
+        from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     cos_dist = compute_cosine_velocity(hs)  # (n_tokens - 1,)
 
@@ -952,7 +1144,6 @@ def segment_hybrid(
             prominence_factor=prominence_factor,
         )
 
-    think_content = match.group(1).strip()
     after_think = text[match.end():].strip()
 
     # Tokenize full text to get token ranges
@@ -971,10 +1162,20 @@ def segment_hybrid(
     think_hs = token_hidden_states[think_start_tokens:think_end_tokens]
     think_token_ids = full_tokens[think_start_tokens:think_end_tokens]
 
-    from scipy.signal import find_peaks
+    try:
+        from scipy.signal import find_peaks
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     hs = think_hs[:, layer, :]  # (n_think_tokens, d_model)
-    from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    try:
+        from manylatents.metrics.trajectory_geometry import compute_cosine_velocity
+    except ImportError as e:
+        raise ImportError(
+            "Velocity segmentation requires the traces dependencies. Run 'uv sync --extra traces'."
+        ) from e
 
     cos_dist = compute_cosine_velocity(hs)
 

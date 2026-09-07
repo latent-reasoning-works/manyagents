@@ -44,3 +44,16 @@ hydra:
 # WandB configuration
 wandb:
   group: reasoning_baseline_${now:%Y%m%d}
+
+# Site-local weights and model aliases shared by HF and vLLM agents.
+available_models:
+  llama-3.3-70b: /network/weights/llama.var/llama_3.3/Llama-3.3-70B-Instruct
+  llama-3.1-70b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-70B-Instruct
+  llama-3.1-8b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct
+  llama-3.1-405b-fp8: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-405B-Instruct-FP8
+  olmo-7b: /network/weights/olmo/OLMo-7B-Twin-2T
+  olmo-1b: /network/weights/olmo/OLMo-1B-Twin-2T
+  olmoe-1b-7b: /network/weights/olmoe/OLMoE-1B-7B-0924
+  qwen3-0.6b: Qwen/Qwen3-0.6B
+  qwen3-4b: Qwen/Qwen3-4B
+  qwen3-8b: Qwen/Qwen3-8B

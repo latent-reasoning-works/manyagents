@@ -8,9 +8,10 @@ to support algorithm diversity without schema explosion.
 See docs/design_decisions.md Decision 003 for the rationale behind this approach.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Optional, TypedDict
-from pathlib import Path
+from typing import Any
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -49,34 +50,6 @@ Examples:
 # ============================================================================
 # ADAPTER RESULT TYPES
 # ============================================================================
-
-class AdapterResult(TypedDict, total=False):
-    """
-    Standard result format from agent adapters.
-
-    Uses TypedDict for IDE autocomplete while allowing flexible keys.
-    The 'total=False' makes all fields optional, enabling extensibility.
-
-    Required fields (validated at runtime):
-        success: Whether execution succeeded
-        summary: Human-readable description
-
-    Standard optional fields:
-        embeddings: Geometric outputs (EmbeddingOutputs format from manylatents)
-        output_files: Dict mapping output types to file paths or data
-        metadata: Execution metadata (config, timing, etc.)
-
-    Custom fields: Agents can add domain-specific outputs freely.
-    """
-    # Required fields
-    success: bool
-    summary: str
-
-    # Standard optional fields
-    embeddings: Optional[dict[str, Any]]  # EmbeddingOutputs from manylatents
-    output_files: Optional[dict[str, Any]]  # File paths or in-memory data
-    metadata: Optional[dict[str, Any]]  # Execution metadata
-
 
 # ============================================================================
 # EMBEDDING OUTPUTS (mirrors manylatents pattern)
@@ -164,6 +137,14 @@ def validate_adapter_result(result: dict[str, Any], adapter_name: str) -> Adapte
     if not isinstance(result["summary"], str):
         raise ValueError(
             f"{adapter_name}: 'summary' must be str, got {type(result['summary'])}"
+        )
+
+    if "output_files" not in result:
+        raise ValueError(f"{adapter_name}: Result missing required 'output_files' field")
+
+    if not isinstance(result["output_files"], dict):
+        raise ValueError(
+            f"{adapter_name}: 'output_files' must be dict, got {type(result['output_files'])}"
         )
 
     # Log optional fields if present
@@ -357,3 +338,7 @@ def extract_geometric_features(
         features[key] = embedding_outputs[key]
 
     return features
+
+
+# Import after validation helpers: the adapter registry imports them during initialization.
+from .adapters.base import AdapterResult as AdapterResult  # noqa: E402

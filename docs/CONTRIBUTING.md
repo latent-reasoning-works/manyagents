@@ -1,339 +1,83 @@
 # Contributing to manyAgents
 
-Thank you for your interest in contributing to manyAgents! This document provides guidelines for contributing to the project.
+## Development setup
 
-## Development Setup
-
-### Prerequisites
-
-- Python 3.10+
-- [uv](https://github.com/astral-sh/uv) for dependency management
-
-### Setup Steps
+Use Python **3.11–3.12** and uv. From a source checkout:
 
 ```bash
-# Clone the repository
-git clone https://github.com/latent-reasoning-works/manyagents
-cd manyagents
-
-# Install dependencies
-uv sync
-
-# Activate virtual environment
-source .venv/bin/activate
-
-# Run tests to verify setup
-pytest
+uv sync --locked
+uv run --no-sync pytest -q
+uv run --no-sync ruff check manyagents/ tests/
 ```
 
-## Development Workflow
-
-### 1. Create a Branch
+The default development group includes pytest and ruff. `uv sync --extra dev` also installs pre-commit. Optional integration tests require their extras:
 
 ```bash
-git checkout -b feature/your-feature-name
-# or
-git checkout -b fix/issue-description
+uv sync --locked --extra traces
+uv run --no-sync pytest -q
 ```
 
-Branch naming conventions:
-- `feature/` - New features or enhancements
-- `fix/` - Bug fixes
-- `docs/` - Documentation improvements
-- `test/` - Test additions or improvements
-- `refactor/` - Code refactoring
+Core-only tests skip individual cases requiring manylatents. Keep dependency-free tests runnable in core; use the `requires_manylatents` marker on tests that actually need it. vLLM is a separate GPU extra and is not included in `traces` or `full`. See [Running Experiments](running_experiments.md) for hardware requirements.
 
-### 2. Make Your Changes
+## Workflow
 
-- Write clear, concise commit messages
-- Keep commits atomic (one logical change per commit)
-- Follow the existing code style and conventions
+1. Create a focused branch, such as `fix/cli-diagnostic` or `docs/trace-contract`.
+2. Reproduce a behavior change with a failing test before fixing it. Verify execution and results, not merely config composition.
+3. Keep commits focused and document changed public behavior.
+4. Run the relevant tests, then the full suite and ruff.
+5. Open a pull request explaining the problem, resulting behavior, and validation.
 
-### 3. Write Tests
-
-All new features and bug fixes should include tests:
+The full suite is `pytest -q`, including tests under both `tests/` and `manyagents/`. For example:
 
 ```bash
-# Create test file in tests/
-# tests/test_your_feature.py
-
-# Run your tests
-pytest tests/test_your_feature.py -v
-
-# Run all tests
-pytest
-
-# Check coverage
-pytest --cov=manyagents tests/
+uv run --no-sync pytest -q tests/test_cli_commands.py
+uv run --no-sync pytest -q manyagents/adapters/test_adapters.py
 ```
 
-### 4. Update Documentation
+CLI tests should invoke the Hydra entry point in-process, with mock adapters, isolated output directories, and assertions on persisted responses and scores. `--cfg job` does not execute the runner, and Hydra rejects it alongside `--multirun`.
 
-- Update relevant docstrings
-- Update `docs/` files if changing architecture or adding features
-- Update README.md if adding new functionality
-- Add configuration examples for new features
+## Adapter conventions
 
-## Code Style Guidelines
-
-### Python Style
-
-We follow [PEP 8](https://pep8.org/) with some modifications:
-
-- Line length: 100 characters (not 79)
-- Use type hints for function signatures
-- Use descriptive variable names
+Subclass `AgentAdapter` and implement its async `run` method. A minimal text adapter has this shape:
 
 ```python
-# Good
-def execute_workflow(config: DictConfig, context: LoggingContext) -> WorkflowResult:
-    """Execute a workflow with the given configuration."""
-    pass
-
-# Avoid
-def exec_wf(c, ctx):
-    pass
-```
-
-### Docstrings
-
-Use Google-style docstrings:
-
-```python
-def execute_workflow(config: DictConfig, context: LoggingContext) -> WorkflowResult:
-    """Execute a workflow with the given configuration.
-    
-    Args:
-        config: Hydra configuration for the workflow
-        context: Logging context for tracking execution
-    
-    Returns:
-        WorkflowResult containing outputs and metrics
-    
-    Raises:
-        WorkflowExecutionError: If workflow execution fails
-    """
-    pass
-```
-
-### Import Organization
-
-```python
-# Standard library imports
-import os
-from pathlib import Path
-from typing import Dict, List, Optional
-
-# Third-party imports
-import numpy as np
-from omegaconf import DictConfig
-
-# Local imports
-from manyagents.adapters import AgentAdapter
-from manyagents.types import WorkflowResult
-```
-
-## Testing Requirements
-
-### Test Categories
-
-1. **Unit Tests**: Test individual functions/classes in isolation
-2. **Integration Tests**: Test adapter integrations (e.g., with manyLatents)
-3. **Orchestration Tests**: Test full workflow execution
-
-### Writing Tests
-
-```python
-import pytest
-from omegaconf import DictConfig
-
-from manyagents.adapters import ManyLatentsAdapter
-
-
-class TestManyLatentsAdapter:
-    """Test suite for ManyLatentsAdapter."""
-    
-    def test_adapter_initialization(self):
-        """Test that adapter initializes correctly."""
-        config = DictConfig({"name": "manylatents"})
-        adapter = ManyLatentsAdapter(config)
-        assert adapter.name == "manylatents"
-    
-    def test_execute_with_valid_config(self, sample_data):
-        """Test adapter execution with valid configuration."""
-        # Test implementation
-        pass
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_adapters.py
-
-# Run tests matching pattern
-pytest -k "test_adapter"
-
-# Run with verbose output
-pytest -v
-
-# Run with coverage
-pytest --cov=manyagents --cov-report=html tests/
-```
-
-## Adding a New Adapter
-
-To add support for a new tool:
-
-1. **Create adapter file**: `manyagents/adapters/yourtool_adapter.py`
-
-```python
-from typing import Any, Dict
-from omegaconf import DictConfig
-
-from manyagents.adapters.base import AgentAdapter
+from manyagents.adapters.base import AgentAdapter, AdapterResult
 
 
 class YourToolAdapter(AgentAdapter):
-    """Adapter for YourTool integration."""
-    
-    def __init__(self, config: DictConfig):
-        super().__init__(config)
-        self.tool_config = config.get("tool_specific_config", {})
-    
-    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute YourTool with given input.
-        
-        Args:
-            input_data: Input data from previous step or initial data
-        
-        Returns:
-            Dictionary containing:
-                - output_data: Processed data
-                - metrics: Tool-specific metrics
-        """
-        # Implementation
-        pass
+    def __init__(self):
+        super().__init__("yourtool")
+
+    async def run(self, task_config: dict, input_files: dict) -> AdapterResult:
+        response = "Use PCA."  # Replace with the external tool call.
+        return self.success_response(
+            summary="Completed",
+            output_files=self.save_response(response),
+        )
 ```
 
-2. **Create config**: `manyagents/configs/agent/yourtool.yaml`
+Register the class in `manyagents/adapters/__init__.py`, add an agent YAML, and test success and failure behavior. An agent config uses:
 
 ```yaml
-_target_: manyagents.adapters.yourtool_adapter.YourToolAdapter
-name: yourtool
-tool_specific_config:
-  param1: value1
-  param2: value2
+# @package _global_
+agent:
+  name: yourtool
+  adapter: yourtool
+  config: {}
 ```
 
-3. **Write tests**: `tests/test_yourtool_adapter.py`
+Use `success_response()` / `error_response()` for the result contract and `save_response()` for evaluated text. Compute/artifact adapters must set `PRODUCES_TEXT_RESPONSE = False`; the evaluation runner must not score diagnostic output as an answer. Keep optional dependency imports lazy and name the relevant install extra in errors.
 
-4. **Update documentation**: Add to README.md "Available Adapters" section
+Use type hints at public boundaries, descriptive names, and docstrings explaining arguments and results. Geometric metrics and DR algorithms belong in manylatents; manyagents coordinates them. CellForge, Kosmos, and Biomni execute local code with caller permissions. Biomni runs in-process via `asyncio.to_thread`, which is not a sandbox or a killable subprocess.
 
-5. **Create example workflow**: `manyagents/configs/experiment/yourtool_example.yaml`
+## Documentation and review
 
-## Pull Request Process
+Update README examples and the relevant `docs/` pages whenever public commands, result shapes, or requirements change. Keep CLI examples executable with their stated dependencies and credentials. Do not promise unavailable files, services, or a hosted documentation site.
 
-### Before Submitting
+Before requesting review, check that tests pass, ruff is clean, the docs match the implementation, and the diff stays within the intended scope. Describe any remaining unverified integration or hardware behavior in the pull request.
 
-- [ ] All tests pass locally
-- [ ] Code follows style guidelines
-- [ ] Documentation is updated
-- [ ] Commit messages are clear
-- [ ] Branch is up to date with main
+## Releases and recognition
 
-### PR Checklist
+Maintainers manage versioning and releases. Release preparation must update both package version locations and the lock, record release notes, and verify the committed source and built wheel before tagging. Those are release tasks, separate from ordinary documentation changes.
 
-1. **Title**: Clear, concise description of changes
-   - Good: "Add CellForge adapter with metrics support"
-   - Avoid: "Update stuff"
-
-2. **Description**: Include:
-   - What changes were made
-   - Why changes were needed
-   - How to test the changes
-   - Any breaking changes or migration notes
-
-3. **Link Issues**: Reference related issues with `Fixes #123` or `Related to #456`
-
-4. **Request Review**: Tag relevant maintainers
-
-### PR Template
-
-```markdown
-## Description
-Brief description of changes
-
-## Motivation
-Why is this change needed?
-
-## Changes Made
-- Change 1
-- Change 2
-- Change 3
-
-## Testing
-How were these changes tested?
-
-## Checklist
-- [ ] Tests pass locally
-- [ ] Documentation updated
-- [ ] No breaking changes (or migration guide provided)
-- [ ] Code follows style guidelines
-```
-
-## Versioning
-
-We follow [Semantic Versioning](https://semver.org/):
-
-- **MAJOR**: Breaking changes
-- **MINOR**: New features (backwards compatible)
-- **PATCH**: Bug fixes (backwards compatible)
-
-## Release Process
-
-Releases are managed by maintainers:
-
-1. Update version in `pyproject.toml`
-2. Update CHANGELOG.md
-3. Create release tag: `git tag v0.2.0`
-4. Push tag: `git push origin v0.2.0`
-5. Create GitHub release with notes
-
-## Community Guidelines
-
-### Code of Conduct
-
-- Be respectful and inclusive
-- Provide constructive feedback
-- Focus on what's best for the project
-- Acknowledge contributions from others
-
-### Communication Channels
-
-- **GitHub Issues**: Bug reports and feature requests
-- **GitHub Discussions**: Questions and general discussion
-- **Pull Requests**: Code contributions and reviews
-
-## Getting Help
-
-If you need help:
-
-1. Check existing documentation in `docs/`
-2. Search closed issues and PRs
-3. Ask in GitHub Discussions
-4. Create a new issue with detailed context
-
-## Recognition
-
-Contributors will be:
-- Added to CONTRIBUTORS.md
-- Mentioned in release notes
-- Credited in relevant documentation
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the MIT License.
+Contributors are credited through Git history, pull requests, and release notes. Be respectful and constructive in issues and reviews. Contributions are licensed under the project's [MIT License](../LICENSE).

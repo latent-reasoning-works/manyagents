@@ -58,7 +58,7 @@ def load_manylatents_experiment(
         config_dir = str(config_dir.resolve())
     except ImportError:
         raise ImportError(
-            "manylatents not found. Install with: uv add manylatents"
+            "manylatents not found. Install with: uv sync --extra traces"
         )
 
     # Note: GlobalHydra clearing is now handled inside manylatents.api.run().

@@ -9,6 +9,8 @@ agent:
   name: vllm
   adapter: vllm
   config:
+    # Cluster aliases are optional; Hub IDs and paths work on any host.
+    available_models: ${oc.select:available_models}
     model: Qwen/Qwen3-0.6B
     # --- sampling ---
     temperature: 0.7
@@ -26,8 +28,3 @@ agent:
     max_model_len: 4096
     enforce_eager: false
     # engine_kwargs: {quantization: null, kv_cache_dtype: auto}  # free-form passthrough
-  available_models:
-    qwen3-0.6b: Qwen/Qwen3-0.6B
-    qwen3-4b: Qwen/Qwen3-4B
-    qwen3-8b: Qwen/Qwen3-8B
-    llama-3.1-8b: /network/weights/llama.var/llama_3.1/Meta-Llama-3.1-8B-Instruct

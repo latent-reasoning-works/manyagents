@@ -1,4 +1,6 @@
 """Measurement failures must survive workflow recording and serialization."""
+import sys
+from types import ModuleType
 from unittest.mock import Mock
 
 import numpy as np
@@ -9,6 +11,16 @@ from manyagents.workflows.sequence import compute_gvector, execute_sequence
 
 
 CORE_METRICS = ["beta_0", "beta_1", "participation_ratio", "local_intrinsic_dim"]
+
+
+@pytest.fixture(autouse=True)
+def measurement_backend(monkeypatch):
+    """Exercise the outcome contract even in a core-only installation."""
+    package = ModuleType("manylatents")
+    package.metrics = ModuleType("manylatents.metrics")
+    package.metrics.compute_metric = Mock()
+    monkeypatch.setitem(sys.modules, "manylatents", package)
+    monkeypatch.setitem(sys.modules, "manylatents.metrics", package.metrics)
 
 
 @pytest.mark.parametrize("failed_metric", CORE_METRICS + ["trustworthiness"])

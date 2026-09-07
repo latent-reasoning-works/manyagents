@@ -60,7 +60,6 @@ class MockAdapter(AgentAdapter):
 
         if response is None:
             # Generate a response mentioning the mock methods
-            methods_text = ", ".join(mock_methods)
             response = f"""Based on your data description, I would recommend the following analysis methods:
 
 1. **{mock_methods[0].upper()}** - This is an excellent choice for your data structure.
@@ -74,9 +73,7 @@ Mock adapter response (prompt length: {len(prompt)} chars).
         return {
             "success": True,
             "summary": f"Mock response generated ({len(response)} chars)",
-            "output_files": {
-                "response": response
-            },
+            "output_files": self.save_response(response),
             "metadata": {
                 "mock": True,
                 "prompt_length": len(prompt),
