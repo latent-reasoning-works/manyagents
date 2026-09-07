@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 
 from manyagents.schemas import GVector, TransformationTrajectory
+from manyagents.schemas.gvector import CORE_METRICS
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +90,14 @@ def compute_gvector(
         dataset_obj: Optional dataset object for metrics requiring original data.
 
     Returns:
-        GVector with computed metric values.
+        GVector with explicit measurement outcomes. Failed requests carry their
+        reasons in measurements; unrequested core metrics are marked separately.
+        Unavailable numeric fields contain padding, not measured zeros.
     """
     from manylatents.metrics import compute_metric
 
     values: Dict[str, Any] = {}
+    measurements = {name: {"status": "not_requested"} for name in CORE_METRICS}
 
     for metric_name in metrics:
         # Map to registry name if needed
@@ -105,24 +109,37 @@ def compute_gvector(
             # Handle different return types
             if isinstance(result, tuple):
                 # (scalar, per_sample_array) -> take scalar
-                values[metric_name] = float(result[0])
+                value = float(result[0])
             elif isinstance(result, np.ndarray):
                 # Per-sample array -> take mean
-                values[metric_name] = float(np.mean(result))
+                value = float(np.mean(result))
             else:
-                values[metric_name] = float(result)
+                value = float(result)
+
+            if not np.isfinite(value):
+                raise ValueError("Metric returned a non-finite value")
+            if metric_name in ("beta_0", "beta_1"):
+                value = int(value)
+
+            values[metric_name] = value
+            measurements[metric_name] = {"status": "measured", "value": value}
 
             logger.debug(f"  {metric_name} = {values[metric_name]:.4f}")
 
         except Exception as e:
             logger.warning(f"Failed to compute metric '{metric_name}': {e}")
-            values[metric_name] = 0.0
+            values.pop(metric_name, None)
+            measurements[metric_name] = {
+                "status": "failed", "reason": f"{type(e).__name__}: {e}",
+            }
 
+    # The fixed numeric contract needs padding; outcomes determine validity.
     return GVector(
         beta_0=int(values.get("beta_0", 0)),
         beta_1=int(values.get("beta_1", 0)),
         participation_ratio=float(values.get("participation_ratio", 0.0)),
         local_intrinsic_dim=float(values.get("local_intrinsic_dim", 0.0)),
+        measurements=measurements,
     )
 
 
