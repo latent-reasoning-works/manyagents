@@ -105,3 +105,46 @@ def test_finite_gvector_measurements_still_supported(value, expected, metric_res
     g = compute_gvector(np.ones((3, 2)), ["participation_ratio"])
     assert g.metric_value("participation_ratio") == expected
     assert GVector.from_json(g.to_json()).metric_value("participation_ratio") == expected
+
+
+def test_inconsistent_deserialization_is_rejected():
+    record = GVector(0, 0, 0.0, 0.0).to_dict()
+    record["measurements"]["beta_0"]["value"] = 10
+    with pytest.raises(ValueError, match="beta_0.*inconsistent"):
+        GVector.from_dict(record)
+
+
+@pytest.mark.parametrize("mutation", ["attribute", "metadata"])
+@pytest.mark.parametrize("reader", ["metric", "array", "json", "deltas"])
+def test_mutated_values_cannot_disagree(mutation, reader):
+    previous = GVector(0, 0, 0.0, 0.0)
+    current = GVector(0, 0, 0.0, 0.0)
+    if mutation == "attribute":
+        current.beta_0 = 10
+    else:
+        current.measurements["beta_0"]["value"] = 10
+    trajectory = TransformationTrajectory(
+        id="mutated", workflow=[{}], dataset_name="array", g_vectors=[previous, current],
+        executed_at=datetime.now(), total_time_seconds=1, per_step_times=[0, 1],
+    )
+    with pytest.raises(ValueError, match="beta_0.*inconsistent"):
+        if reader == "metric":
+            current.metric_value("beta_0")
+        elif reader == "array":
+            current.to_array()
+        elif reader == "json":
+            current.to_json()
+        else:
+            _ = trajectory.deltas
+
+
+@pytest.mark.parametrize("metadata", [None, "absent"])
+def test_legacy_provenance_stays_unknown_through_roundtrip(metadata):
+    record = {name: 0 for name in CORE_METRICS}
+    if metadata is None:
+        record["measurements"] = None
+    legacy = GVector.from_dict(record)
+    for g in [legacy, GVector.from_json(legacy.to_json())]:
+        assert all(g.measurements[name] == {"status": "unknown"} for name in CORE_METRICS)
+        with pytest.raises(ValueError, match="unknown"):
+            g.to_array()
