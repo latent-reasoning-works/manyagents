@@ -150,7 +150,6 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
 
     This is the Hydra-driven equivalent of the old scripts/extract_traces.py.
     """
-    import numpy as np
     from manyagents.adapters import ADAPTER_REGISTRY
     from manyagents.schemas.reasoning import TraceStore, ReasoningTrace
 

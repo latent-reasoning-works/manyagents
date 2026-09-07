@@ -62,7 +62,11 @@ python_files = ["test_*.py"]
 asyncio_mode = "auto"
 
 [dependency-groups]
+# Synced by default on `uv run`/`uv sync` — this is what the pre-push
+# checklist (`uv run pytest` / `uv run ruff`) relies on. Keep ruff here so
+# `uv run ruff check` works without the `[dev]` extra.
 dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.3.0",
+    "ruff>=0.6.0",
 ]

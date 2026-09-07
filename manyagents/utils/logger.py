@@ -1,6 +1,5 @@
 """Structured logging for pipeline invariance experiments."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -285,7 +284,6 @@ class ExperimentLogger:
         wandb = _get_wandb()
 
         results = experiment_results.get("results", {})
-        metrics = experiment_results.get("metrics", {})
 
         # Figure 4: Failure analysis table
         failure_table = wandb.Table(columns=[

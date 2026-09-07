@@ -6,15 +6,14 @@ Uses pytest parameterization to test common functionality across all adapters.
 import asyncio
 import json
 import os
-import tempfile
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from .base import AgentAdapter, AdapterResult, AdapterConfig
+from .base import AgentAdapter, AdapterConfig
 from manyagents.utils.helpers import (
     run_subprocess, SubprocessResult, get_python_executable,
-    truncate_string, parse_json_safe, find_executable
+    truncate_string, parse_json_safe
 )
 from .openai_adapter import OpenAIAdapter
 from .cellforge_adapter import CellForgeAdapter
