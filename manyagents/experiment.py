@@ -294,6 +294,13 @@ def _get_agent_config(cfg: DictConfig, agent_name: str) -> DictConfig:
 
 async def run_experiment(cfg: DictConfig) -> Dict[str, Any]:
     """Run the full experiment based on Hydra config."""
+    if "active_agents" not in cfg and not OmegaConf.select(cfg, "trace_extraction.enabled", default=False):
+        available = sorted(path.stem for path in (Path(__file__).parent / "configs/experiment").glob("*.yaml"))
+        raise SystemExit(
+            "No experiment selected. Run: manyagents experiment=<name>. Available: "
+            + ", ".join(available)
+        )
+
     # Dispatch to trace extraction if configured
     if hasattr(cfg, "trace_extraction") and getattr(cfg.trace_extraction, "enabled", False):
         return await _run_trace_extraction(cfg)
