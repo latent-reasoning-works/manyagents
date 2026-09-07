@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 class ClaudeAdapter(AgentAdapter):
     """Adapter for Anthropic Claude API integration."""
 
-    DEFAULT_MODEL = "claude-opus-4-8"
+    DEFAULT_MODEL = "claude-opus-5"
     DEFAULT_TEMPERATURE = 0.0
     DEFAULT_MAX_TOKENS = 4096
 

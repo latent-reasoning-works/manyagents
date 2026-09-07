@@ -24,7 +24,7 @@ class BiomniAdapter(AgentAdapter):
         ANTHROPIC_API_KEY: Required for LLM calls
     """
 
-    DEFAULT_LLM = "claude-sonnet-4-20250514"
+    DEFAULT_LLM = "claude-opus-5"
     DEFAULT_TIMEOUT = 3600  # 1 hour
 
     def __init__(self, data_path: Optional[str] = None):
@@ -56,7 +56,7 @@ class BiomniAdapter(AgentAdapter):
         Args:
             task_config: Configuration including:
                 - task or prompt: str (required) - The biomedical task to perform
-                - llm: str (optional) - LLM model to use (default: claude-sonnet-4-20250514)
+                - llm: str (optional) - LLM model to use (default: claude-opus-5)
                 - data_path: str (optional) - Override data directory path
                 - disable_datalake: bool (optional) - Skip datalake download
                 - timeout: int (optional) - Timeout in seconds

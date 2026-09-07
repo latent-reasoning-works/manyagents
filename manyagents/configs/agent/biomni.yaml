@@ -6,7 +6,7 @@ agent:
   adapter: biomni
   config:
     prompt: ""  # Supplied by the experiment runner; task is also accepted.
-    llm: claude-sonnet-4-20250514
+    llm: claude-opus-5
     timeout: 3600
     disable_datalake: true  # Skip 11GB download for faster startup
   requires_env:
