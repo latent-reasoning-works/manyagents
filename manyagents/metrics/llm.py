@@ -81,7 +81,7 @@ def compute_system_metrics(
             prompt_config.get('ground_truth_methods', []),
             prompt_config.get('failure_indicators', [])
         )
-        ground_truth_matches.append(float(is_match))
+        ground_truth_matches.append(float(is_match) if is_match is not None else None)
         clustering_for_all.append(float(result.get('mentions_clustering', False)))
 
     jaccard_stats = compute_pairwise_jaccard(method_sets)
@@ -90,7 +90,11 @@ def compute_system_metrics(
         'jaccard_similarity_across_prompts': jaccard_stats['mean'] if jaccard_stats else None,
         'jaccard_min': jaccard_stats['min'] if jaccard_stats else None,
         'jaccard_max': jaccard_stats['max'] if jaccard_stats else None,
-        'ground_truth_match_rate': mean(ground_truth_matches) if ground_truth_matches else None,
+        # Do not silently narrow the denominator to prompts with known criteria.
+        'ground_truth_match_rate': (
+            mean(ground_truth_matches)
+            if ground_truth_matches and None not in ground_truth_matches else None
+        ),
         'clustering_for_all_rate': mean(clustering_for_all) if clustering_for_all else None,
         'prompts_evaluated': len(method_sets),
         'prompts_failed': len(system_results) - len(method_sets)

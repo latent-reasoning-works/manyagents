@@ -131,24 +131,24 @@ def _normalize_set(items: List[str]) -> Set[str]:
 
 def check_ground_truth_match(
     extracted: List[str],
-    ground_truth: List[str],
+    ground_truth: List[str] | None,
     failure_indicators: List[str]
-) -> Tuple[bool, Dict[str, Any]]:
-    """Check if extracted methods match ground truth criteria."""
+) -> Tuple[bool | None, Dict[str, Any]]:
+    """Check ground truth criteria; an absent/empty criterion is unavailable."""
     extracted_set = _normalize_set(extracted)
-    ground_truth_set = _normalize_set(ground_truth)
+    ground_truth_set = _normalize_set(ground_truth or [])
     failure_set = _normalize_set(failure_indicators)
 
     matches = extracted_set & ground_truth_set
     failures = extracted_set & failure_set
 
-    is_success = bool(matches) and not (failures and not matches)
+    is_success = bool(matches) if ground_truth_set else None
 
     return is_success, {
         'ground_truth_matches': sorted(matches),
         'failure_matches': sorted(failures),
         'total_extracted': len(extracted_set),
-        'match_ratio': len(matches) / len(ground_truth_set) if ground_truth_set else 0
+        'match_ratio': len(matches) / len(ground_truth_set) if ground_truth_set else None
     }
 
 

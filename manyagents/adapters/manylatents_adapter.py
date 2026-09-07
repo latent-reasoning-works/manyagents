@@ -426,8 +426,9 @@ class ManyLatentsAdapter(AgentAdapter):
                     if isinstance(v, tuple) and len(v) == 2:
                         return v[0]  # (scalar, per_sample) -> scalar
                     elif isinstance(v, dict):
-                        # For structured metrics, try to find a scalar or use length
-                        return v.get('scalar', len(v))
+                        if v.get('status', 'measured') != 'measured':
+                            return None
+                        return v.get('scalar')
                     elif hasattr(v, '__len__') and not isinstance(v, (str, bytes)):
                         # Array-like (numpy array, list, etc.) - take mean
                         import numpy as np
@@ -435,8 +436,10 @@ class ManyLatentsAdapter(AgentAdapter):
                     else:
                         return float(v)  # Already a scalar
 
+                from manyagents.metrics.llm import format_metric
+
                 metric_summary = ', '.join(
-                    f'{k}={extract_scalar(v):.3f}'
+                    f'{k}={format_metric(extract_scalar(v), ".3f")}'
                     for k, v in list(scores.items())[:3]
                 )
                 summary_parts.append(f"Metrics: {metric_summary}")
