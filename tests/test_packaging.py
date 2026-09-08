@@ -33,6 +33,8 @@ def test_wheel_builds_and_has_no_hook(tmp_path):
         assert not any('hatch_build' in name for name in archive.namelist())
         version = project['project']['version']
         metadata = archive.read(f'manyagents-{version}.dist-info/METADATA').decode()
+        assert 'License-Expression: MIT' in metadata
+        assert archive.read(f'manyagents-{version}.dist-info/licenses/LICENSE').startswith(b'MIT License')
         assert 'Provides-Extra: traces' in metadata
         assert 'Provides-Extra: wandb' in metadata
         assert 'Provides-Extra: docs' not in metadata

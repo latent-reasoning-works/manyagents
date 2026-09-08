@@ -1,66 +1,38 @@
-# Experiment Configurations
+# Experiment configurations
 
-This directory contains **pattern-based example configs** that demonstrate manyAgents workflow structures.
+These are the experiment configs shipped with manyagents. Select one with `experiment=<name>`; bare `manyagents` lists the available names and exits nonzero. See [Running Experiments](../../../docs/running_experiments.md) for setup and execution details.
 
-These configs are **teaching tools** - they show you how to structure your own experiments. Each file is heavily commented to be self-documenting.
+## Start here
 
-## Available Patterns
+| Config | Purpose |
+| --- | --- |
+| `test_wandb.yaml` | Two mock prompts; runs locally without keys, GPU, or model downloads |
+| `geometric_reasoning.yaml` | Nine prompts across three domains and three information conditions |
+| `invariance_golden.yaml` | Golden invariance evaluation configuration |
+| `invariance_full.yaml` | Four-prompt evaluation with Claude, OpenAI, local LLM, and Biomni agents |
+| `invariance_compare_models.yaml` | Model comparison configuration |
+| `trace_extraction.yaml` | Reasoning trace extraction; defaults to HF and tag segmentation |
+| `reasoning_baseline.yaml` | Local reasoning baseline |
+| `baseline_sweep.yaml` | Baseline sweep settings |
+| `llm_reasoning_sweep.yaml` | Local-model reasoning sweep settings |
 
-### `manylatents_single_algorithm.yaml` ⭐ DEFINITIVE EXAMPLE 1
-The simplest workflow: manyAgents orchestrating a single manyLatents DR experiment.
-
-```bash
-python -m manyagents.main experiment=manylatents_single_algorithm
-```
-
-**Learn from this:**
-- Basic workflow structure with one step
-- How to specify manylatents adapter
-- Direct algorithm configuration (no experiment reference)
-- Wandb step tagging (run named: "step0_pca_reduction")
-
-### `manylatents_multi_step_pipeline.yaml` ⭐ DEFINITIVE EXAMPLE 2
-Multi-step workflow: chaining PCA → UMAP with in-memory data passing.
+Inspect each config's defaults and comments for models, datasets, and dependencies. API experiments require credentials; local models require accessible weights and suitable hardware. Sweeps may include site-specific choices.
 
 ```bash
-python -m manyagents.main experiment=manylatents_multi_step_pipeline
+manyagents experiment=test_wandb
+manyagents experiment=geometric_reasoning 'active_agents=[mock]'
+# Inspect configuration without executing:
+manyagents experiment=trace_extraction --cfg job
 ```
 
-**Learn from this:**
-- Multi-step workflows with automatic data chaining
-- Each step creates a separate wandb run
-- Geometric metrics computation
-- Embedding visualization (plots, no CSV)
-- Preparing geometric features for downstream agents
+The text-evaluation runner expects text-producing adapters. For dimensionality reduction workflows, use `manyagents.workflows.sequence.execute_sequence` or `ManyLatentsAdapter` with the `traces` extra; there are no shipped single-algorithm or multi-step manylatents experiment configs.
 
-### `single_algorithm.yaml` (Legacy)
-Original simple example - kept for backward compatibility.
+## Add a project experiment
 
-## Creating Your Own Experiments
+Copy a suitable shipped config into your own `configs/experiment/` directory, retain `# @package _global_`, and configure agents and prompts. For a checkout, add your directory to Hydra's search path:
 
-For project-specific experiments, create a new directory:
-
-```
-your_project/
-  configs/
-    experiment/
-      hgdp_pca.yaml        # Your actual experiments
-      ukbb_umap.yaml
-      ...
+```bash
+manyagents 'hydra.searchpath=[file:///absolute/path/to/your_project/configs]' experiment=my_experiment
 ```
 
-Then use Hydra's search path to include them:
-
-```python
-# In your project's main.py
-@hydra.main(config_path="configs", ...)
-```
-
-## Pattern vs Project Configs
-
-| Type | Purpose | Location | Naming |
-|------|---------|----------|--------|
-| **Pattern** | Teaching examples | `manyagents/configs/experiment/` | `single_algorithm.yaml` |
-| **Project** | Actual experiments | `your_project/configs/experiment/` | `hgdp_pca.yaml` |
-
-Keep patterns generic and heavily commented. Make project configs specific and concise.
+Keep project-specific data and model choices in project configs. Keep cluster paths and resource allocations in the `cluster=` and `resources=` config groups.

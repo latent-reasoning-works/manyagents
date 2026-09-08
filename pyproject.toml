@@ -5,6 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "manyagents"
 version = "0.1.1"
+license = "MIT"
 description = "Multi-agent evaluation and reasoning trace extraction"
 authors = [
     { name = "César Miguel Valdez Córdova", email = "cesar.valdez@mila.quebec" },

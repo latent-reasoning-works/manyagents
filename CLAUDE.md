@@ -2,7 +2,7 @@
 
 Multi-agent orchestration for scientific workflows. Hydra + pydantic + uv.
 
-**Ecosystem map** (canonical, repo-independent): the LRW handbook — [`concepts-and-map.md`](https://github.com/latent-reasoning-works/handbook/blob/main/0-start-here/concepts-and-map.md) (frame) and [`1-architecture/ecosystem.md`](https://github.com/latent-reasoning-works/handbook/blob/main/1-architecture/ecosystem.md) (as-built state). This file owns manyAgents' internals only.
+manyAgents coordinates adapters and experiment execution. manyLatents supplies optional dimensionality reduction and geometric metrics; downstream applications consume the resulting responses and traces. The adapter protocol, config groups, and result schemas below define the integration boundary.
 
 ## What belongs here
 
@@ -175,7 +175,7 @@ Get an adapter by name via the registry dict: `from manyagents.adapters import A
 - **Schema-on-read** — configs are dicts, not dataclasses. Validate at boundaries only.
 - **`inference.py` is functional** — plain functions, module-level model cache, no classes.
 - **`EmbeddingOutputs` is a deprecated alias** — it's just `dict[str, Any]` now.
-- **Hidden-state capture defaults to `state_dtype="float16"`** — which overflows massive-activation channels (Sun et al. 2024). For faithful trajectory geometry (the Arm-2 substrate) call `inference.extract_trace(state_dtype="float32")` directly; the Hydra/adapter path does **not** yet thread `state_dtype` through `HFAdapter`/`VLLMAdapter`, so it can only emit float16. Threading it through is an Arm-2 pre-req.
+- **Hidden-state capture defaults to `state_dtype="float16"`** — which overflows massive-activation channels (Sun et al. 2024). For faithful trajectory geometry call `inference.extract_trace(state_dtype="float32")` directly; the Hydra/adapter path does **not** yet thread `state_dtype` through `HFAdapter`/`VLLMAdapter`, so it can only emit float16. Use the direct inference API when float32 storage is required.
 
 ## Tests
 

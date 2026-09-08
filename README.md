@@ -18,6 +18,8 @@
 
 Multi-agent evaluation and reasoning trace extraction for scientific workflows. Dispatch prompts through a shared adapter interface, extract method recommendations, and compare them against expected data geometry.
 
+**Upgrading:** 0.1.1 is not a drop-in upgrade from 0.1.0. Read the [release notes and migration guide](CHANGELOG.md) for adapter results, exit semantics, model pinning, and legacy GVector data.
+
 ## Install
 
 Requires Python **3.11–3.12**. From a source checkout:

@@ -58,7 +58,7 @@ manyagents experiment=trace_extraction agent=vllm
 manyagents experiment=trace_extraction agent=vllm agent.config.dtype=float16
 ```
 
-**Hardware:** laptops suit API clients, a local Ollama server, mock, and small HF models; large HF models and vLLM need suitable GPUs. `configs/agent/vllm.yaml` hardcodes `dtype: bfloat16` with no fallback, assuming bf16-capable hardware (Ampere or newer). Mila's V100 and RTX 8000 are pre-Ampere; use `agent.config.dtype=float16` there. GPU verification job **10689474** failed on an RTX 8000 with the bf16 default. The default remains unchanged to preserve numerics on Ampere+.
+**Hardware:** laptops suit API clients, a local Ollama server, mock, and small HF models; large HF models and vLLM need suitable GPUs. `configs/agent/vllm.yaml` hardcodes `dtype: bfloat16` with no fallback, assuming bf16-capable hardware (Ampere or newer). Mila's V100 and RTX 8000 are pre-Ampere; use `agent.config.dtype=float16` there. The default remains unchanged to preserve numerics on Ampere+.
 
 With `agent=vllm`, the dtype override is `agent.config.dtype`. When loading vLLM into an experiment package, use the corresponding `agents.<name>.agent.config.dtype` path instead.
 
