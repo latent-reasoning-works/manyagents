@@ -3,7 +3,7 @@
 #
 # Usage:
 #   manyagents experiment=invariance_full
-#   manyagents experiment=invariance_full active_agents=[claude,openai,local_llm]
+#   manyagents experiment=invariance_full 'active_agents=[claude,openai,local_llm]'
 #   manyagents --multirun experiment=invariance_full agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B,Qwen/Qwen3-1.7B
 
 name: invariance_full_experiment

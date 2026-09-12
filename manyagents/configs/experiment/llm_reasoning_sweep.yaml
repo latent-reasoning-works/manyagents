@@ -2,7 +2,7 @@
 # LLM Reasoning Sweep: models × scenarios (2 prompts each)
 # Default: one portable model × 4 scenarios = 4 jobs
 # Usage: manyagents experiment=llm_reasoning_sweep
-# Select other Hub IDs with hydra.sweeper.params.model=org/model1,org/model2
+# Select other Hub IDs with model=org/model1,org/model2
 name: llm_reasoning_sweep
 
 model: Qwen/Qwen3-0.6B

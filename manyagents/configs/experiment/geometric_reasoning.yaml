@@ -9,7 +9,7 @@
 # Usage:
 #   manyagents experiment=geometric_reasoning
 #   manyagents experiment=geometric_reasoning wandb.enabled=true
-#   manyagents experiment=geometric_reasoning active_agents=[claude,openai]
+#   manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 
 name: geometric_reasoning_suite
 
