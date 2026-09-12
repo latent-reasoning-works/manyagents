@@ -31,7 +31,7 @@ Issues = "https://github.com/latent-reasoning-works/manyagents/issues"
 Changelog = "https://github.com/latent-reasoning-works/manyagents/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-traces = ["manylatents>=0.1.6,<0.2", "datasets>=3.0", "scipy>=1.8,<1.15"]
+traces = ["manylatents>=0.1.7,<0.2", "datasets>=3.0", "scipy>=1.8,<1.15"]
 wandb = ["wandb>=0.25"]
 full = ["manyagents[traces,wandb]", "biomni>=0.0.2"]
 # vLLM generation backend (GPU). Imported lazily by VLLMAdapter / inference.py,

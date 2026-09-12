@@ -1763,7 +1763,7 @@ requires-dist = [
     { name = "hydra-core", specifier = ">=1.3" },
     { name = "hydra-submitit-launcher", specifier = ">=1.2" },
     { name = "manyagents", extras = ["traces", "wandb"], marker = "extra == 'full'" },
-    { name = "manylatents", marker = "extra == 'traces'", specifier = ">=0.1.6,<0.2" },
+    { name = "manylatents", marker = "extra == 'traces'", specifier = ">=0.1.7,<0.2" },
     { name = "numpy", specifier = ">=1.20" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pandas", specifier = ">=2.3.2" },
@@ -1788,7 +1788,7 @@ dev = [
 
 [[package]]
 name = "manylatents"
-version = "0.1.6"
+version = "0.1.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "archetypes" },
@@ -1820,9 +1820,9 @@ dependencies = [
     { name = "umap-learn" },
     { name = "wandb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1d/10/bd86f7de5c61359ed38d5f9723c1cf12601e69f48c0e864b6d9c7d4e60ee/manylatents-0.1.6.tar.gz", hash = "sha256:e63bf5e0bf7ffed1ead667a42d84bdffdad90d21bf22e04dbd75bf923d2cd1cc", size = 566638, upload-time = "2026-06-06T18:21:56.071Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/65/24/5c5d7089201e82d631831100b36303995853b6b61669a183ba56f80d02e3/manylatents-0.1.7.tar.gz", hash = "sha256:b3867d345000695719c5a106b78234e801fab1a812f94368a4db80cbc424308d", size = 724995, upload-time = "2026-09-10T18:05:19.276Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/72/852713f698d544e7faca7e703fe6f7f8f85d1d2e0b36863577bb4bcf474b/manylatents-0.1.6-py3-none-any.whl", hash = "sha256:0501fbcc6e9f7d6ff2be82c289be5049b1cfd82c86da95abada1806b4a8180ea", size = 392115, upload-time = "2026-06-06T18:21:53.91Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/20/e9353100c7764a59bcbc004c558c9a0ed3192f028cc1dc5a6bf646435ab4/manylatents-0.1.7-py3-none-any.whl", hash = "sha256:b6505db7f09b7bf650d38d93bcd096ac41f08fad5d4ab2b6f52dc6cbff6a463a", size = 482095, upload-time = "2026-09-10T18:05:15.521Z" },
 ]
 
 [[package]]
