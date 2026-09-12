@@ -219,6 +219,12 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
                 if task_config.get("capture_hidden_states", False) and hs is None:
                     raise ValueError("capture_hidden_states requested but trace has no tensors")
 
+                if hs is not None and len(trace.steps) < 2:
+                    raise ValueError(
+                        "Hidden-state geometry requires at least two steps; "
+                        "try segmentation=delimiter or increase max_new_tokens"
+                    )
+
                 store.append(trace, hidden_states=hs)
                 summary["total_traces"] += 1
                 summary["with_tensors"] += int(hs is not None)

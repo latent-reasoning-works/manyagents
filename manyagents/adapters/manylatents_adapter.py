@@ -64,7 +64,11 @@ class ManyLatentsAdapter(AgentAdapter):
                     - n_components: Number of components (default: 2)
                     - Other Hydra config overrides
             input_files: Input data files (reserved for future use)
-            input_data: Optional numpy array from previous step (for chaining)
+            input_data: Optional 2-D (samples, features) numpy array from a previous
+                step; replaces the need for a data name when chaining. Stored
+                3-D trace tensors require layer selection first. Trajectory
+                velocity/curvature use manylatents.metrics directly; see the
+                README "From traces to geometry" example.
             logging_config: Optional logging configuration from Geomancer:
                 - logging_mode: 'collect_only' | 'immediate' | 'disabled'
                 - save_metrics: bool
@@ -379,7 +383,7 @@ class ManyLatentsAdapter(AgentAdapter):
                 overrides['logger'] = None
 
             # Validate manylatents config structure
-            validate_manylatents_config(overrides)
+            validate_manylatents_config(overrides, input_data=input_data)
 
             log.info("Calling manylatents.api.run() with validated config")
 

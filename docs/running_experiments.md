@@ -79,6 +79,12 @@ Trace extraction instead writes:
 
 `TraceStore` appends one JSON record per trace. Counts cover only traces newly persisted by the current run. Zero persisted traces exit nonzero; requested hidden states must be present as nonempty, finite float arrays.
 
+## From traces to geometry
+
+Follow the [runnable README bridge](../README.md#from-traces-to-geometry): load each NPZ through `TraceStore`, select the captured layer, cast to float32, then call manyLatents directly. Group by `step_trace_ids` to avoid introducing transitions between separate traces. `ManyLatentsAdapter.execute_cached` does not accept the stored 3-D tensor or expose trajectory velocity/curvature through its YAML metric registry.
+
+The default segmentation is `delimiter` (newlines). Captured traces need at least two steps to enter the store; curvature needs three. Short captured traces count as `traces_failed`. This release has no answer judge: generated traces are always `unjudged`, with `success=None` and `judge="none"`. Extraction success does not mean a correct or complete answer.
+
 ## Optional logging and cluster execution
 
 Install `uv sync --extra wandb` (or `--extra full`) and configure W&B authentication, then add `wandb.enabled=true`. Keep any other required extras in the same sync command.

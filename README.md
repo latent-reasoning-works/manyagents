@@ -134,6 +134,50 @@ manyagents experiment=trace_extraction agent=vllm
 
 vLLM trace replay was verified finite on an L40S: float16 `token_level` arrays have shape `(n_tokens, 1, d_model)` and `pooled_steps` arrays have shape `(n_steps, 1, d_model)` with the default single captured layer. The stored replay dtype is distinct from the vLLM engine's generation dtype.
 
+## From traces to geometry
+
+After the capture command above, replace `<output_dir>` with that run's output directory. `TraceStore.load_tensors(trace_id)` reads `tensors/{trace_id}.npz`. The stored `pooled_steps` array is **(steps, captured layers, hidden dimension)**; select a layer by its position in `layers_captured` and cast to float32 to obtain the **(steps, hidden dimension)** input expected by manyLatents.
+
+Use **manyLatents directly** for trajectory velocity and curvature, as below. `ManyLatentsAdapter.run(input_data=...)` supports 2-D arrays for DR without a dummy `data` field, but its cached `setup_metrics` registry discovers YAML-backed metrics. manylatents 0.1.7 supplies no trajectory metric YAMLs, and `execute_cached` cannot consume a 3-D trace tensor. It is not the trace-to-trajectory-metrics interface.
+
+```python
+import numpy as np
+from manyagents.schemas import TraceStore
+from manylatents.metrics import compute_metric
+from manylatents.metrics.trajectory_geometry import compute_cosine_velocity, compute_menger_curvature
+from manylatents.api import run as ml_run
+
+store = TraceStore("<output_dir>/traces", mode="r")
+per_trace, ids = [], []
+for trace in store:
+    tensors = store.load_tensors(trace.trace_id)           # tensors/{trace_id}.npz
+    if tensors is None or not trace.steps:                # text-only traces
+        continue
+    layers = trace.steps[0].layers_captured               # e.g. [28] -> axis-1 index
+    steps = tensors["pooled_steps"][:, layers.index(layers[-1]), :].astype(np.float32)
+    if len(steps) < 3:                                    # velocity needs 2, curvature needs 3
+        continue
+    print(trace.trace_id, compute_cosine_velocity(steps), compute_menger_curvature(steps))
+    per_trace.append(steps)
+    ids += [trace.trace_id] * len(steps)
+
+if not per_trace:
+    raise SystemExit("No traces with at least three steps and tensors; capture longer responses.")
+X, ids = np.concatenate(per_trace), np.array(ids)
+class _Grouped:
+    step_trace_ids = ids                                  # preserves trace boundaries
+print(compute_metric("trajectory_velocity", X, dataset=_Grouped()))
+print(compute_metric("trajectory_curvature", X, dataset=_Grouped()))
+r = ml_run(input_data=X, algorithm="pca", metrics=["trajectory_velocity", "trajectory_curvature"])
+print(r["embeddings"].shape, r["scores"])
+```
+
+Use traces from the **same model and captured layer** for aggregation. The first outputs measure raw hidden states per trace. Grouped `compute_metric` averages each trace's mean, excluding transitions between independent traces. The final `ml_run` example instead measures the **PCA embedding, ungrouped**: its scores include transitions across concatenated trace boundaries and are not a grouped reasoning-geometry measurement. To measure the embedding with boundaries preserved, call `compute_metric` on `r["embeddings"]` with `dataset=_Grouped()`.
+
+The shipped capture experiment uses newline (`delimiter`) segmentation so an unclosed `<think>` does not collapse a multiline response into one step. Hidden-state traces with fewer than two steps are counted in `traces_failed` and excluded from the store; two-step traces permit velocity but not curvature. Text-only traces may still have one step. Longer responses may require `agent.config.max_new_tokens=1024` or more; segmentation and a persisted trace do not establish answer completeness or correctness.
+
+**This release has no answer judge.** Captured traces have `success=None` and `judge="none"`; their summary outcome is always `unjudged`. The summary's `success` and `failure` fields remain zero unless an external producer supplies judged outcomes. `traces_failed` counts extraction/persistence failures separately.
+
 ## Trusted execution
 
 CellForge and Kosmos execute local subprocesses with the caller's environment. Biomni imports `A1` from `biomni.agent` in-process and runs `agent.go` through `asyncio.to_thread`; a thread is not process isolation, and an async timeout does not terminate the running thread. These integrations execute local code with the caller's permissions and are not for untrusted task configs.

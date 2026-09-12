@@ -11,7 +11,7 @@ These are the experiment configs shipped with manyagents. Select one with `exper
 | `invariance_golden.yaml` | Golden invariance evaluation configuration |
 | `invariance_full.yaml` | Four-prompt evaluation with Claude, OpenAI, local LLM, and Biomni agents |
 | `invariance_compare_models.yaml` | Model comparison configuration |
-| `trace_extraction.yaml` | Reasoning trace extraction; defaults to HF and tag segmentation |
+| `trace_extraction.yaml` | Reasoning trace extraction; defaults to HF and newline segmentation |
 | `reasoning_baseline.yaml` | Local reasoning baseline |
 | `baseline_sweep.yaml` | Baseline sweep settings |
 | `llm_reasoning_sweep.yaml` | Local-model reasoning sweep settings |

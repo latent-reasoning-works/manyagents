@@ -179,7 +179,7 @@ def test_latex_summary_handles_undefined_metrics():
 @pytest.fixture
 def trace_experiment(tmp_path, monkeypatch):
     from manyagents import experiment
-    from manyagents.schemas.reasoning import ReasoningTrace, TraceStore
+    from manyagents.schemas.reasoning import ReasoningTrace, ReasoningStep, TraceStore
 
     cfg = OmegaConf.create({
         "name": "traces", "output_dir": str(tmp_path),
@@ -191,7 +191,9 @@ def trace_experiment(tmp_path, monkeypatch):
     with TraceStore(tmp_path / "traces") as store:
         store.append(ReasoningTrace(trace_id="previous_run"))
     trace_path = tmp_path / "trace.json"
-    trace_path.write_text(ReasoningTrace(trace_id="new_trace").to_json())
+    trace_path.write_text(ReasoningTrace(trace_id="new_trace", steps=[
+        ReasoningStep(index=0, text="First step"), ReasoningStep(index=1, text="Second step"),
+    ]).to_json())
     return cfg, tasks, trace_path
 
 
@@ -317,3 +319,38 @@ def test_jaccard_pair_ids_do_not_collide():
     assert result["max"] == 1.0
     saved = json.loads(json.dumps(result))
     assert {tuple(json.loads(key)) for key in saved["pairwise"]} == set(combinations(methods, 2))
+
+
+@pytest.mark.parametrize("n_steps,capture", [(0, True), (1, True), (1, False), (2, True)])
+async def test_geometry_requires_two_steps_before_persistence(
+    n_steps, capture, trace_experiment, monkeypatch, caplog,
+):
+    import numpy as np
+    from manyagents.schemas.reasoning import TraceStore, ReasoningTrace, ReasoningStep
+
+    cfg, tasks, trace_path = trace_experiment
+    tasks[:] = tasks[:1]
+    cfg.agent.config.capture_hidden_states = capture
+    trace = ReasoningTrace(trace_id="short", steps=[
+        ReasoningStep(index=i, text="<think>unfinished", layers_captured=[1])
+        for i in range(n_steps)
+    ])
+    trace_path.write_text(trace.to_json())
+    tensors_path = trace_path.with_suffix(".npz")
+    np.savez(tensors_path, pooled_steps=np.ones((max(n_steps, 1), 1, 3)))
+    monkeypatch.setattr(MockAdapter, "run", AsyncMock(return_value={
+        "success": True, "summary": "Done",
+        "output_files": {"trace": trace_path, "hidden_states": tensors_path},
+    }))
+    if n_steps < 2:
+        with pytest.raises(SystemExit) as exc:
+            await run_experiment(cfg)
+        assert exc.value.code == 1
+        assert "at least two steps" in caplog.text
+        assert len(TraceStore(trace_path.parent / "traces", mode="r")) == 1
+        assert not (trace_path.parent / "traces/tensors/short.npz").exists()
+    else:
+        result = await run_experiment(cfg)
+        assert result["summary"]["total_traces"] == 1
+        assert result["summary"]["unjudged"] == 1
+        assert result["summary"]["success"] == result["summary"]["failure"] == 0
