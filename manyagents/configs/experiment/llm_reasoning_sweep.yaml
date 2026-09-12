@@ -1,27 +1,29 @@
 # @package _global_
 # LLM Reasoning Sweep: models × scenarios (2 prompts each)
-# Jobs: 3 models × 4 scenarios = 12
+# Default: one portable model × 4 scenarios = 4 jobs
+# Usage: manyagents experiment=llm_reasoning_sweep
+# Select other Hub IDs with hydra.sweeper.params.model=org/model1,org/model2
 name: llm_reasoning_sweep
 
-model: llama-3.1-8b
+model: Qwen/Qwen3-0.6B
 scenario: manifold
 
 defaults:
-  - /agent@agents.local_llm: local_llm
+  - /agent@agents.local_llm: hf
   - _self_
 
 hydra:
   mode: MULTIRUN
   sweeper:
     params:
-      model: llama-3.1-8b,llama-3.1-70b,olmo-7b
+      model: Qwen/Qwen3-0.6B
       scenario: manifold,trajectory,clustering,periodic
   sweep:
     dir: outputs/${name}/sweeps/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ${model}_${scenario}
 
 wandb:
-  enabled: true
+  enabled: false  # Opt in with wandb.enabled=true
   project: manyagents_llm_baseline
   group: reasoning_sweep_${now:%Y%m%d}
   tags: [reasoning, sweep, "${model}", "${scenario}"]

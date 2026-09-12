@@ -14,8 +14,8 @@ manyagents experiment=geometric_reasoning 'active_agents=[mock]'
 # Real API evaluation: export ANTHROPIC_API_KEY and OPENAI_API_KEY first
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 
-# Local HF generation, loading directly into the named experiment package
-manyagents experiment=geometric_reasoning 'active_agents=[local_llm]' agent@agents.local_llm=hf agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B
+# Local HF generation with the shipped default model
+manyagents experiment=geometric_reasoning 'active_agents=[local_llm]' agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B
 ```
 
 Each active agent runs every prompt. The runner reads response text, extracts method recommendations, checks expected methods, and computes aggregate scores. Ground-truth match rate up is good; cross-prompt Jaccard and clustering-for-all up are bad in this geometry evaluation. Undefined measurements appear as `null` in JSON and `n/a` in summaries. Zero successful evaluations exit nonzero; partial failures remain in the results.
@@ -25,10 +25,10 @@ Bare `manyagents` exits with an experiment-selection hint and all available expe
 ## Sweeps
 
 ```bash
-manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 ```
 
-This launches three jobs, each evaluating four prompts with one agent. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`; it does not define `hf` or `mock`. Sweep `active_agents`, not `agent`. The named package override loads HF directly for `local_llm`, avoiding the legacy alias's nested-default packaging issue. Outside Mila, append `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B` (or another accessible model).
+This launches three jobs, each evaluating four prompts with one agent. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`; it does not define `hf` or `mock`. Sweep `active_agents`, not `agent`. The local job defaults to `Qwen/Qwen3-0.6B`; override `agents.local_llm.agent.config.model` to select another accessible model.
 
 The output override keeps separate `results.json` and `summary.md` files in Hydra's numbered job directories. Without it, the experiment's second-resolution output name can collide across fast jobs.
 

@@ -101,7 +101,33 @@ def test_alias_interpolation_survives_agent_repackaging():
     with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
         cfg = compose(config_name="main", overrides=[
             "cluster=mila_slurm", "experiment=invariance_full",
-            "agent@agents.local_llm=hf",
         ])
     task = OmegaConf.to_container(cfg.agents.local_llm.agent.config, resolve=True)
     assert task["available_models"] == dict(cfg.available_models)
+
+
+@pytest.mark.parametrize("overrides,path", [
+    (["+agent=local_llm"], "agent.config"),
+    (["experiment=invariance_full", "agent@agents.local_llm=local_llm"],
+     "agents.local_llm.agent.config"),
+])
+def test_legacy_local_llm_alias_preserves_hf_config(overrides, path):
+    with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
+        cfg = compose(config_name="main", overrides=overrides)
+    task = OmegaConf.select(cfg, path)
+    assert task is not None
+    assert task.model == "Qwen/Qwen3-0.6B"
+    assert task.max_new_tokens == 2000
+
+
+@pytest.mark.parametrize("name", [
+    "reasoning_baseline", "llm_reasoning_sweep", "baseline_sweep",
+])
+def test_shipped_wandb_is_opt_in(name):
+    with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
+        cfg = compose(config_name="main", overrides=[f"experiment={name}"])
+        opted_in = compose(config_name="main", overrides=[
+            f"experiment={name}", "wandb.enabled=true",
+        ])
+    assert cfg.wandb.enabled is False
+    assert opted_in.wandb.enabled is True

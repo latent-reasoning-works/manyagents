@@ -2,15 +2,15 @@
 # Compare open vs closed models on invariance test
 #
 # Usage:
-#   manyagents-experiment experiment=invariance_compare_models
-#   manyagents-experiment --multirun experiment=invariance_compare_models agents.local_llm.config.model=llama-3.1-8b,llama-3.1-70b,llama-3.3-70b
+#   manyagents experiment=invariance_compare_models
+#   manyagents --multirun experiment=invariance_compare_models agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B,Qwen/Qwen3-1.7B
 
 name: invariance_model_comparison
 
 defaults:
   - /agent@agents.claude: claude
   - /agent@agents.openai: openai
-  - /agent@agents.local_llm: local_llm
+  - /agent@agents.local_llm: hf
   - _self_
 
 system_prompt: >

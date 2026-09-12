@@ -51,10 +51,10 @@ manyagents experiment=geometric_reasoning 'active_agents=[mock]'
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 
 # Three separate jobs; retain each job's results
-manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 ```
 
-The sweep uses names defined by `invariance_full`: `claude`, `openai`, and `local_llm` (it also defines `biomni`). It loads HF directly into `agents.local_llm` because the legacy `local_llm` alias's nested defaults do not retain the HF config in that package. The local job needs an accessible model; outside Mila, add `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B`. The output override saves each job under Hydra's numbered multirun directory. `--cfg job` only displays configuration; it cannot be combined with `--multirun` or verify execution.
+The sweep uses names defined by `invariance_full`: `claude`, `openai`, and `local_llm` (it also defines `biomni`). The local job uses HF with `Qwen/Qwen3-0.6B` by default; select another accessible model with `agents.local_llm.agent.config.model=<Hub-ID-or-path>`. The output override saves each job under Hydra's numbered multirun directory. `--cfg job` only displays configuration; it cannot be combined with `--multirun` or verify execution.
 
 Bare `manyagents` exits with a command hint and the available experiment names. Successful evaluations save `results.json` and `summary.md` under the configured `output_dir`. Zero successful evaluations exit nonzero; partial failures remain recorded alongside successes.
 

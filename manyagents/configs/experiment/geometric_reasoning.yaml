@@ -19,7 +19,7 @@ wandb:
     - 3x3-matrix
 
 defaults:
-  - /agent@agents.local_llm: local_llm
+  - /agent@agents.local_llm: hf
   - /agent@agents.claude: claude
   - /agent@agents.openai: openai
   - /agent@agents.mock: mock

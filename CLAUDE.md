@@ -34,7 +34,7 @@ manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 manyagents experiment=trace_extraction agent=claude agent.config.capture_hidden_states=false
 
 # Multirun sweep
-manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 
 # SLURM submission
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]' cluster=mila_remote resources=api

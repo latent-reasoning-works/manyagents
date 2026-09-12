@@ -9,20 +9,20 @@
 # Usage:
 #   manyagents experiment=reasoning_baseline
 #   manyagents experiment=reasoning_baseline wandb.enabled=true
-#   manyagents experiment=reasoning_baseline agents.local_llm.config.model=llama-3.3-70b
+#   manyagents experiment=reasoning_baseline agents.local_llm.agent.config.model=Qwen/Qwen3-1.7B
 
 name: llm_reasoning_baseline
 
 wandb:
-  enabled: true
+  enabled: false  # Opt in with wandb.enabled=true
   project: manyagents_llm_baseline
   tags:
     - reasoning-baseline
     - geometric-awareness
-    - llama-3.1-8b
+    - hf
 
 defaults:
-  - /agent@agents.local_llm: local_llm
+  - /agent@agents.local_llm: hf
   - _self_
 
 # System prompt for geometric reasoning
