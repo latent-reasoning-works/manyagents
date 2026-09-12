@@ -50,15 +50,22 @@ manyagents-generate-registry --verbose
 manyagents-generate-registry --force
 ```
 
-### During Package Build
+### At Runtime and During Package Build
 
-The registry is **automatically generated** during package builds via a Hatch build hook:
-- Triggers when building wheels (`uv build --wheel`)
-- Only regenerates if manyLatents version changes
-- Uses version-based diff detection
+`MetricRegistry()` discovers the installed manylatents metrics and algorithms in memory. It requires the `traces` extra at use time and does not write into the installed package. There is no Hatch registry build hook; building a wheel does not require manylatents.
 
-**Note**: The hook does NOT run during editable installs (`uv sync`, `pip install -e .`).
-Use the CLI command for development.
+The CLI prints JSON to stdout by default. To persist an explicit cache in a writable location:
+
+```bash
+manyagents-generate-registry --output /tmp/manyagents-registry.json
+```
+
+```python
+from pathlib import Path
+registry = MetricRegistry(Path("/tmp/manyagents-registry.json"))
+```
+
+An explicit cache write failure is logged and the generated in-memory registry remains usable.
 
 ## Extension Support
 

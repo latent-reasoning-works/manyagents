@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from manyagents.schemas.gvector import GVector
+from manyagents.schemas.gvector import CORE_METRICS, GVector
 
 
 @dataclass
@@ -59,10 +59,8 @@ class TransformationTrajectory:
             prev.require_complete()
             curr.require_complete()
             result.append({
-                "beta_0": curr.beta_0 - prev.beta_0,
-                "beta_1": curr.beta_1 - prev.beta_1,
-                "participation_ratio": curr.participation_ratio - prev.participation_ratio,
-                "local_intrinsic_dim": curr.local_intrinsic_dim - prev.local_intrinsic_dim,
+                name: curr.metric_value(name) - prev.metric_value(name)
+                for name in CORE_METRICS
             })
         return result
 

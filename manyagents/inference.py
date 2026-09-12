@@ -992,13 +992,14 @@ def segment_by_tags(
         raw_parts.extend(s.strip() for s in sentences if s.strip())
 
     steps: list[dict] = []
-    consumed_text = text[:match.start()]  # text before <think>
+    search_cursor = match.start(1)
 
     for part in raw_parts:
-        consumed_text += part
-        # Find this text in the original to compute token boundary
+        # Track occurrences within the thinking block, including repeated text.
+        part_start = text.index(part, search_cursor, match.end(1))
+        search_cursor = part_start + len(part)
         prefix_tokens = tokenizer.encode(
-            text[:text.find(part) + len(part)],
+            text[:search_cursor],
             add_special_tokens=False,
         )
         token_start = steps[-1]["token_end"] if steps else 0
@@ -1280,15 +1281,20 @@ def pool_hidden_states_per_step(
 
     Returns:
         ``(n_steps, n_layers, d_model)``
+
+    Raises:
+        ValueError: An interval is empty, reversed, or outside captured tokens.
     """
     n_tokens = token_hidden_states.shape[0]
     pooled = []
 
-    for step in steps:
-        start = min(step["token_start"], n_tokens - 1)
-        end = min(step["token_end"], n_tokens)
-        if end <= start:
-            end = start + 1
+    for index, step in enumerate(steps):
+        start, end = step["token_start"], step["token_end"]
+        if not (0 <= start < end <= n_tokens):
+            raise ValueError(
+                f"Invalid pooling interval for step {index}: [{start}:{end}] "
+                f"with {n_tokens} captured tokens"
+            )
         pooled.append(token_hidden_states[start:end].mean(axis=0))
 
     return np.stack(pooled)

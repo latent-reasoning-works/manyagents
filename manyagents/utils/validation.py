@@ -64,8 +64,7 @@ async def validate_and_filter(
     flag_columns = [col for col in validated_df.columns if col.endswith("_flag")]
     
     if not flag_columns:
-        log.warning("No flag columns found, treating all items as passed")
-        return validated_df, pd.DataFrame()
+        raise ValueError(f"{filter_function} must return at least one flag column (ending in '_flag')")
     
     log.info(f"Found flag columns: {flag_columns}")
     
@@ -115,8 +114,7 @@ async def apply_filter_function(
         )
     """
     if not filter_function:
-        log.warning("No filter function provided, returning all items unfiltered")
-        return data.copy()
+        raise ValueError("filter_function is required; choose an explicit validator")
     
     # Parse module path
     if ":" not in filter_function:

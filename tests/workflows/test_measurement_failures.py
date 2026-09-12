@@ -137,7 +137,8 @@ def test_measured_zero_deltas_survive_serialization(monkeypatch):
 
 
 def test_legacy_numeric_vectors_remain_readable():
-    """Existing numeric-only records retain the original constructor contract."""
+    """Legacy fields remain readable, but are not certified measurements."""
     g = GVector.from_dict({name: 0 for name in CORE_METRICS})
-    np.testing.assert_array_equal(g.to_array(), np.zeros(4))
-    assert GVector.from_array(g.to_array()) == g
+    assert all(getattr(g, name) == 0 for name in CORE_METRICS)
+    with pytest.raises(ValueError, match="unknown"):
+        g.to_array()

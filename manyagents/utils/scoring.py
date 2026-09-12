@@ -22,6 +22,18 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 
+def random_scores(data: pd.DataFrame, embeddings=None, *, seed=None) -> pd.DataFrame:
+    """Explicit simulation scorer; every row is labeled ``score_simulated=True``.
+
+    Select via ``manyagents.utils.scoring:random_scores`` for test/demo rankings.
+    These random values are not measurements. An optional seed makes them repeatable.
+    """
+    result = data.copy()
+    result["score"] = np.random.default_rng(seed).random(len(data))
+    result["score_simulated"] = True
+    return result
+
+
 async def score_and_rank(
     data: pd.DataFrame,
     scoring_function: str,
@@ -114,10 +126,7 @@ async def apply_scoring_function(
         )
     """
     if not scoring_function:
-        log.warning("No scoring function provided, using default (random scores)")
-        result = data.copy()
-        result["score"] = np.random.random(len(data))
-        return result
+        raise ValueError("scoring_function is required; choose an explicit scorer")
     
     # Parse module path
     if ":" not in scoring_function:
