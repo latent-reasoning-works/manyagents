@@ -257,7 +257,8 @@ def build_manylatents_config_with_hydra_zen(
     EXPERIMENTAL: Build manylatents config using hydra-zen.
 
     This shows what hydra-zen would look like for config generation.
-    Currently not used - kept as reference for potential future use.
+    Unsupported prototype, not used by the public execution path.
+    Requires a separate hydra-zen installation; it is not a direct dependency.
 
     Args:
         algorithm: Algorithm name (e.g., "pca")

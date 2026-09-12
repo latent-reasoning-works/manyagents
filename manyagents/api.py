@@ -45,6 +45,17 @@ def _compose(config_name: str, overrides: List[str]):
 
 def run(overrides: Optional[List[str]] = None, *, config_name: str = "main",
         return_cfg: bool = False):
+    """Run one composed experiment synchronously and return its result dictionary.
+
+    overrides contains Hydra CLI-style strings, for example
+    ["experiment=test_wandb", "output_dir=outputs/demo"]. config_name selects
+    the config in manyagents.configs. Set return_cfg=True to return
+    (result, composed_config). This executes one job, not a Hydra multirun.
+
+    Raises SystemExit if no evaluations or traces succeed, or the experiment
+    selection is invalid. Uses asyncio.run; call experiment.run_experiment
+    with a composed config when already inside an async event loop.
+    """
     cfg = _compose(config_name, list(overrides or []))
     result = asyncio.run(run_experiment(cfg))
     return (result, cfg) if return_cfg else result

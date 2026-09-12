@@ -5,7 +5,7 @@ A ``Tool`` pairs a JSON-schema declaration (what the model sees) with a callable
 a string result that is fed back to the model as a ``role: "tool"`` message.
 
 Compute does NOT live here — tools are thin wrappers that call out to the libraries
-that own the work (manyLatents for DR, Geomancy for inference, etc.). manyAgents
+that own the work (for example, manyLatents for DR). manyAgents
 owns the loop; the tool body delegates.
 """
 
@@ -18,12 +18,14 @@ from typing import Any, Callable
 
 @dataclass
 class Tool:
+    """A named callable and its JSON Schema arguments, supplied by the caller."""
     name: str
     description: str
     parameters: dict[str, Any]  # JSON Schema for the arguments object
     run: Callable[..., Any]     # (**kwargs) -> str | Awaitable[str]
 
     def to_openai_schema(self) -> dict[str, Any]:
+        """Return the OpenAI function-tool declaration without the callable."""
         return {
             "type": "function",
             "function": {
@@ -34,6 +36,7 @@ class Tool:
         }
 
     async def invoke(self, arguments: dict[str, Any]) -> str:
+        """Call the tool with keyword arguments, await if needed, and return text."""
         result = self.run(**arguments)
         if inspect.isawaitable(result):
             result = await result
@@ -41,6 +44,7 @@ class Tool:
 
 
 def to_openai_schemas(tools: list[Tool]) -> list[dict[str, Any]]:
+    """Return an OpenAI function-tool declaration for each supplied tool."""
     return [t.to_openai_schema() for t in tools]
 
 

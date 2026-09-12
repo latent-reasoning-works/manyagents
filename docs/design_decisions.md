@@ -153,36 +153,7 @@ Overhead is minimal (dict validation is ~microseconds) while preventing schema m
 - Core types defined in `manyagents/types.py`
 - Validation functions mirror manylatents pattern
 - Each adapter implements its own specific validators
-- Config templates in `manyagents/templates/` to guide agent config generation
-
----
-
-## Future Decisions
-
-This section will be populated as we progress through Phase 2 (Agentic Planner) and Phase 3 (Learning Agent).
-
-### Template for New Decisions
-
-```markdown
-### Decision XXX: [Title]
-**Date**: YYYY-MM-DD
-**Status**: [Proposed | Adopted | Deprecated | Superseded]
-**Context**: [What situation led to this decision?]
-
-**Decision**: [What did we decide?]
-
-**Rationale**:
-- [Reason 1]
-- [Reason 2]
-
-**Alternatives Considered**:
-- [Alternative 1]: Pros/Cons
-- [Alternative 2]: Pros/Cons
-
-**Implementation Notes**:
-- [Note 1]
-- [Note 2]
-```
+- Shipped Hydra config examples live in `manyagents/configs/`
 
 ---
 

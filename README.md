@@ -10,13 +10,14 @@
     coordinate, dispatch, aggregate
 </pre>
 
+[![CI](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml/badge.svg)](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-8B5CF6.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11–3.12-8B5CF6.svg)](https://www.python.org)
 [![uv](https://img.shields.io/badge/pkg-uv-8B5CF6.svg)](https://docs.astral.sh/uv/)
 
 </div>
 
-Multi-agent evaluation and reasoning trace extraction for scientific workflows. Dispatch prompts through a shared adapter interface, extract method recommendations, and compare them against expected data geometry.
+[manyagents](https://github.com/latent-reasoning-works/manyagents) provides multi-agent evaluation and reasoning trace extraction for scientific workflows. Dispatch prompts through a shared adapter interface, extract method recommendations, and compare them against expected data geometry.
 
 **Upgrading:** 0.1.1 is not a drop-in upgrade from 0.1.0. Read the [release notes and migration guide](CHANGELOG.md) for adapter results, exit semantics, model pinning, and legacy GVector data.
 
@@ -53,6 +54,8 @@ manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 # Three separate jobs; retain each job's results
 manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 ```
+
+The mock deliberately answers every prompt identically: expect Jaccard 1.0 and clustering-for-all 100%. That is the invariance failure this evaluation is designed to detect.
 
 The sweep uses names defined by `invariance_full`: `claude`, `openai`, and `local_llm` (it also defines `biomni`). The local job uses HF with `Qwen/Qwen3-0.6B` by default; select another accessible model with `agents.local_llm.agent.config.model=<Hub-ID-or-path>`. The output override saves each job under Hydra's numbered multirun directory. `--cfg job` only displays configuration; it cannot be combined with `--multirun` or verify execution.
 
@@ -178,6 +181,10 @@ The shipped capture experiment uses newline (`delimiter`) segmentation so an unc
 
 **This release has no answer judge.** Captured traces have `success=None` and `judge="none"`; their summary outcome is always `unjudged`. The summary's `success` and `failure` fields remain zero unless an external producer supplies judged outcomes. `traces_failed` counts extraction/persistence failures separately.
 
+## Tool-calling loop
+
+`manyagents.agent_loop.run_agent_loop` is an async entry point for adapters exposing `chat()` (OpenAI, Ollama, and Claude). Pass a prompt and optional `manyagents.tools.Tool` objects, each pairing a JSON Schema with a trusted sync or async callable. The returned `AgentResult` contains `answer`, `messages`, `steps`, `stopped` (`end_turn` or `max_steps`), and executed `tool_calls`. Pass `messages` back as `history` to continue; `max_steps` bounds model turns. Tool bodies run with the caller's permissions.
+
 ## Trusted execution
 
 CellForge and Kosmos execute local subprocesses with the caller's environment. Biomni imports `A1` from `biomni.agent` in-process and runs `agent.go` through `asyncio.to_thread`; a thread is not process isolation, and an async timeout does not terminate the running thread. These integrations execute local code with the caller's permissions and are not for untrusted task configs.
@@ -192,11 +199,12 @@ CellForge requires an explicit installation directory via `CellForgeAdapter(cell
 - [Config Groups](docs/config_groups.md): Hydra packages and overrides
 - [Design Decisions](docs/design_decisions.md): architecture history
 - [Contributing](docs/CONTRIBUTING.md): development and adapter conventions
+- [Code of conduct](CODE_OF_CONDUCT.md), [security reporting](SECURITY.md), and [citation](CITATION.cff)
 
 ```bash
 uv sync --locked
 uv run --no-sync pytest -q
-uv run --no-sync ruff check manyagents/ tests/
+uv run --no-sync ruff check manyagents/ tests/ scripts/
 uv sync --locked --extra traces
 uv run --no-sync pytest -q
 ```

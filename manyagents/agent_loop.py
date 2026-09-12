@@ -1,13 +1,9 @@
 """Provider-agnostic agentic tool-loop.
 
-The core Claude-Code-style loop: send messages + tools -> model emits tool calls
--> execute them -> append results -> repeat until the model stops calling tools
-(or ``max_steps`` is hit). Speaks the OpenAI tool-call shape, which ollama and
-vLLM serve natively; routing through ``ClaudeAdapter`` later maps the same loop
-onto Anthropic ``tool_use`` blocks with no second code path.
-
-manyAgents owns this loop. Tool bodies delegate compute to the libraries that own
-it (manyLatents, Geomancy). shop supplies tool *definitions* and calls this.
+Send messages and tools, execute the model's tool calls, append results, and
+repeat until the model stops calling tools or max_steps is reached. Adapters
+must expose chat() with OpenAI-style tool calls. Callers supply Tool definitions;
+tool bodies can delegate computation to downstream libraries.
 """
 
 from __future__ import annotations
@@ -24,6 +20,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class AgentResult:
+    """Final answer, transcript, turn count, stop reason, and executed tool calls."""
     answer: str
     messages: list[dict[str, Any]]   # full transcript (the reasoning/tool trace)
     steps: int

@@ -117,13 +117,6 @@ async def apply_scoring_function(
     Returns:
         DataFrame with 'score' column
         
-    Example:
-        scored = await apply_scoring_function(
-            data=df,
-            scoring_function="manyagents.examples.drug_discovery.scoring:score_repurposing",
-            scoring_params={"method": "combined", "failure_mode": None},
-            embeddings=embedding_array
-        )
     """
     if not scoring_function:
         raise ValueError("scoring_function is required; choose an explicit scorer")

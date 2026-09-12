@@ -7,10 +7,10 @@ Use Python **3.11–3.12** and uv. From a source checkout:
 ```bash
 uv sync --locked
 uv run --no-sync pytest -q
-uv run --no-sync ruff check manyagents/ tests/
+uv run --no-sync ruff check manyagents/ tests/ scripts/
 ```
 
-The default development group includes pytest and ruff. `uv sync --extra dev` also installs pre-commit. Optional integration tests require their extras:
+The default development group includes pytest and ruff. `uv sync --extra dev` also installs pre-commit. Enable the shipped Ruff hook with `uv run --no-sync pre-commit install` and check tracked Python files with `uv run --no-sync pre-commit run --all-files`. Optional integration tests require their extras:
 
 ```bash
 uv sync --locked --extra traces

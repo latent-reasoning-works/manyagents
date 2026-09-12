@@ -140,6 +140,7 @@ def generate_summary_table(
 
     if format == 'latex':
         def percent(value):
+            """Format a summary rate as a percentage while preserving unavailable values."""
             return format_metric(value, '.0%').replace('%', r'\%')
 
         lines = [

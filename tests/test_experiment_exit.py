@@ -109,7 +109,10 @@ def test_undefined_metrics_in_json_console_and_markdown(tmp_path, capsys):
     assert saved["metrics"]["failed"]["ground_truth_match_rate"] is None
     assert (tmp_path / "summary.md").read_text().count("n/a") == 3
     _print_summary(result["metrics"])
-    assert capsys.readouterr().out.count("n/a") == 3
+    console = capsys.readouterr().out
+    assert console.count("n/a") == 3
+    assert console.count("lower is better") == 2
+    assert console.count("higher is better") == 1
 
 
 def test_wandb_omits_undefined_metrics(monkeypatch):

@@ -69,7 +69,7 @@ class ManyLatentsAdapter(AgentAdapter):
                 3-D trace tensors require layer selection first. Trajectory
                 velocity/curvature use manylatents.metrics directly; see the
                 README "From traces to geometry" example.
-            logging_config: Optional logging configuration from Geomancer:
+            logging_config: Optional logging configuration from the caller:
                 - logging_mode: 'collect_only' | 'immediate' | 'disabled'
                 - save_metrics: bool
                 - save_visualizations: bool
@@ -99,7 +99,7 @@ class ManyLatentsAdapter(AgentAdapter):
             # Import manylatents API
             from manylatents.api import run
 
-            # Extract logging configuration from Geomancer
+            # Extract logging configuration from the caller
             logging_config = logging_config or {}
             logging_mode = logging_config.get('logging_mode', 'immediate')
 
@@ -175,7 +175,7 @@ class ManyLatentsAdapter(AgentAdapter):
             task_config.pop('visualize_steps', None)
 
             # Check logging mode to determine if we should create visualizations
-            # collect_only: NO visualizations (Geomancer will create later)
+            # collect_only: NO visualizations (The caller will create later)
             # immediate: YES visualizations (log in real-time)
             # disabled: NO visualizations
             should_create_viz = (
@@ -185,7 +185,7 @@ class ManyLatentsAdapter(AgentAdapter):
 
             if step_idx is not None and step_name is not None and should_create_viz:
                 # Only add visualization callbacks for standalone manyAgents runs
-                # (not when orchestrated by Geomancer)
+                # (not when orchestrated by the caller)
 
                 # Configure PlotEmbeddings callback with step-aware logging key
                 if 'callbacks' not in overrides:
@@ -275,7 +275,7 @@ class ManyLatentsAdapter(AgentAdapter):
                 log.info(f"✅ Composed {len(transformed_metrics)} metric groups from manyLatents configs")
 
             # Handle callbacks specifically - load from manyLatents default configs
-            # Same pattern as metrics - allows Geomancer to control manyLatents callbacks
+            # Same pattern as metrics - allows the caller to control manyLatents callbacks
             if 'callbacks' in task_config:
                 log.info("🔄 Starting callback transformation")
                 from omegaconf import OmegaConf
@@ -372,7 +372,7 @@ class ManyLatentsAdapter(AgentAdapter):
 
             if logging_mode == 'collect_only':
                 # Expert workflow: Disable WandB in manyLatents (callbacks already set to offline mode above)
-                log.info("🔇 DISABLING all WandB in manyLatents (Geomancer will handle logging)")
+                log.info("🔇 DISABLING all WandB in manyLatents (The caller will handle logging)")
                 # Set debug=True to trigger wandb mode='disabled' in manyLatents
                 overrides['debug'] = True
                 overrides['logger'] = None
@@ -410,7 +410,7 @@ class ManyLatentsAdapter(AgentAdapter):
             )
 
             # Note: With logging_mode='collect_only', manyLatents runs with NO WandB
-            # Geomancer will create visualizations from the returned embeddings
+            # The caller will create visualizations from the returned embeddings
 
             # Extract key components
             embeddings = embedding_outputs['embeddings']

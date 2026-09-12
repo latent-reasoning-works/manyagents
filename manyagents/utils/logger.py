@@ -391,27 +391,35 @@ class NullLogger(ExperimentLogger):
         self.run = None
 
     def log_config(self, *args, **kwargs):
+        """Discard configuration because logging is disabled."""
         pass
 
     def log_prompt_result(self, *args, **kwargs):
+        """Discard the prompt result because logging is disabled."""
         pass
 
     log_scenario_result = log_prompt_result  # Backwards compat
 
     def log_system_metrics(self, *args, **kwargs):
+        """Discard system metrics because logging is disabled."""
         pass
 
     def log_summary_table(self, *args, **kwargs):
+        """Skip summary-table logging."""
         pass
 
     def log_method_recommendations(self, *args, **kwargs):
+        """Discard method recommendations because logging is disabled."""
         pass
 
     def create_visualizations(self, *args, **kwargs):
+        """Skip visualization creation."""
         pass
 
     def save_artifacts(self, *args, **kwargs):
+        """Skip artifact upload and persistence."""
         pass
 
     def finish(self):
+        """Return None because there is no logging run URL."""
         return None

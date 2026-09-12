@@ -74,6 +74,18 @@ class VLLMAdapter(AgentAdapter):
         input_files: Dict[str, Path],
         input_data: Optional[Any] = None,
     ) -> AdapterResult:
+        """Generate with vLLM, optionally replaying tokens through HF for a trace.
+
+        task_config requires prompt; model, sampling parameters, and engine
+        settings override the configured defaults. build_trace or
+        capture_hidden_states requires both traces and vllm extras and an HF
+        model for replay. layers and segmentation control captured states.
+        input_files and input_data are reserved and unused.
+
+        Returns an AdapterResult with success, summary, output_files, and
+        metadata. Outputs contain raw_response and optionally trace and
+        hidden_states paths. Errors return success=False with diagnostic text.
+        """
         log.info(f"VLLMAdapter executing with config: {task_config}")
 
         if "prompt" not in task_config:

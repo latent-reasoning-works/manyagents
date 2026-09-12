@@ -23,7 +23,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked --group dev
-      - run: uv run --no-sync ruff check manyagents/ tests/
+      - run: uv run --no-sync ruff check manyagents/ tests/ scripts/
 
   test-core:
     runs-on: ubuntu-latest

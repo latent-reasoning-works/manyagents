@@ -39,14 +39,17 @@ class MetricRegistry:
 
     @property
     def metadata(self) -> Dict[str, Any]:
+        """Return generation metadata, including the installed manyLatents version."""
         return self._registry.get('_metadata', {})
 
     @property
     def metrics(self) -> Dict[str, Dict[str, Any]]:
+        """Return metric names mapped to class paths, groups, defaults, and sources."""
         return self._registry.get('metrics', {})
 
     @property
     def algorithms(self) -> Dict[str, Dict[str, Any]]:
+        """Return algorithm names mapped to class paths, defaults, and sources."""
         return self._registry.get('algorithms', {})
 
     def list_metrics(self, group: Optional[str] = None) -> List[str]:
@@ -56,6 +59,7 @@ class MetricRegistry:
         return [name for name, info in self.metrics.items() if info['group'] == group]
 
     def list_algorithms(self) -> List[str]:
+        """Return the names of discovered YAML-backed algorithms."""
         return list(self.algorithms.keys())
 
     def _get_info(self, name: str, registry: Dict, entity_type: str) -> Dict[str, Any]:
@@ -66,9 +70,11 @@ class MetricRegistry:
         return registry[name]
 
     def get_metric_info(self, name: str) -> Dict[str, Any]:
+        """Return the metric entry; raise KeyError for an undiscovered name."""
         return self._get_info(name, self.metrics, "Metric")
 
     def get_algorithm_info(self, name: str) -> Dict[str, Any]:
+        """Return the algorithm entry; raise KeyError for an undiscovered name."""
         return self._get_info(name, self.algorithms, "Algorithm")
 
     def _get_class(self, name: str, cache_key: str, get_info_fn) -> Type:
@@ -89,18 +95,23 @@ class MetricRegistry:
             raise ImportError(f"Failed to import '{class_path}': {e}") from e
 
     def get_metric_class(self, name: str) -> Type:
+        """Import and cache a metric class; raise KeyError or ImportError on failure."""
         return self._get_class(name, name, self.get_metric_info)
 
     def get_algorithm_class(self, name: str) -> Type:
+        """Import and cache an algorithm class; raise KeyError or ImportError on failure."""
         return self._get_class(name, f'algo_{name}', self.get_algorithm_info)
 
     def get_defaults(self, name: str) -> Dict[str, Any]:
+        """Return a metric's default parameters, or an empty dict when absent."""
         return self.get_metric_info(name).get('defaults', {})
 
     def get_algorithm_defaults(self, name: str) -> Dict[str, Any]:
+        """Return an algorithm's default parameters, or an empty dict when absent."""
         return self.get_algorithm_info(name).get('defaults', {})
 
     def get_group(self, name: str) -> str:
+        """Return the metric call group: embedding, dataset, or module."""
         return self.get_metric_info(name)['group']
 
     def __contains__(self, name: str) -> bool:
