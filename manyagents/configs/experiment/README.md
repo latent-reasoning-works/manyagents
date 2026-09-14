@@ -27,6 +27,32 @@ manyagents experiment=trace_extraction --cfg job
 
 The text-evaluation runner expects text-producing adapters. For dimensionality reduction workflows, use `manyagents.workflows.sequence.execute_sequence` or `ManyLatentsAdapter` with the `traces` extra; there are no shipped single-algorithm or multi-step manylatents experiment configs.
 
+## The 3x3 geometric-reasoning design
+
+> 3 domains × 3 information conditions = 9 prompts, 3 scores
+
+`geometric_reasoning` poses the same analysis question three ways for each of three single-cell scenarios:
+
+| domain | expected geometry | ground truth includes | failure indicators include |
+|---|---|---|---|
+| immunology (PBMCs) | discrete clusters | leiden, louvain, kmeans, phenograph | pseudotime, monocle, slingshot |
+| cancer (EMT time course) | branching trajectory | slingshot, monocle3, paga, cellrank, palantir | clustering, leiden, kmeans |
+| developmental (organoids) | continuous manifold | phate, diffusion_map, umap, isomap | clustering, leiden, louvain |
+
+Condition **A** gives biological context without explicit embedding hints. **B** adds what the embedding looks like. **C** emphasizes geometry and reduces biological context, though some remains (for example single-cell data and timepoints), and the shared system prompt is still computational biology. Better performance on B/C is a hypothesis to test, not a guaranteed consequence of reasoning about structure.
+
+Three scores per agent, written to `summary.md`:
+
+- **Ground-truth match rate:** fraction of successful prompts with at least one extracted expected method and no extracted failure indicator. Higher means more passes against the configured criteria.
+- **Jaccard across prompts:** mean method-set overlap over **all successful prompt pairs**, including pairs within the same geometry. High overlap signals invariance; **lower is not always better**. With nine successful prompts there are 36 pairs, nine within a geometry. One consistent nonempty set per geometry, disjoint across geometries, scores **0.25**. Shared methods raise this value; inconsistent answers within a geometry can lower it. Two empty sets have similarity 1.0. This is an invariance signal, not an optimization objective.
+- **Clustering-for-all:** fraction of successful prompts with an extracted clustering method or phrase, regardless of expected structure. High values flag broad clustering use in this mixed-geometry design; they do not establish whether individual uses are appropriate.
+
+Scoring uses a vocabulary of named tools (clustering, trajectory, DR, cell-cycle, spatial, integration, annotation, differential expression) plus phrases such as "pseudotime analysis". Explicit local rejection cues — “do not use”, “avoid”, “instead of”, “rather than”, “not appropriate”, “would be wrong”, and related forms — filter individual occurrences, including coordinated lists. Prefix scope is limited to eight words after the cue, sentence/contrast boundaries, and new affirmative recommendation cues. A separate unrejected occurrence still counts. Thus “Avoid Leiden; use UMAP” can pass, while “Use Leiden and UMAP” fails a criterion that forbids Leiden.
+
+This remains a heuristic, not a scientific answer judge: bare hedges (“might use”), quoted or hypothetical advice, distant negation, and complex scope can still be misread. Unrejected mentions need not be definite recommendations. `ground_truth_matches` and `match_ratio` describe vocabulary overlap even when `failure_matches` blocks the pass. Execution failures are excluded from all three scores; inspect `prompts_evaluated` and `prompts_failed` alongside rates. Measurements that cannot be computed are `null` in `results.json` and `n/a` in summaries; Jaccard needs at least two successful prompts, and a missing ground-truth criterion makes the whole match rate unavailable rather than quietly narrowing the denominator.
+
+Other shipped experiments vary the framing: `invariance_full` adds periodic (cell cycle) and spatial-gradient geometries; `reasoning_baseline` uses descriptions of synthetic manifolds (swiss roll, torus) and embryoid-body data; `llm_reasoning_sweep` varies models and scenarios, while `baseline_sweep` varies adapters, datasets, algorithms, and dimensions.
+
 ## Add a project experiment
 
 Copy a suitable shipped config into your own `configs/experiment/` directory, retain `# @package _global_`, and configure agents and prompts. For a checkout, add your directory to Hydra's search path:

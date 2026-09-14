@@ -97,7 +97,9 @@ mock:
   Clustering-for-All: 100.0% (lower is better)
 ```
 
-That is what failure looks like. The mock answers every prompt with the same three methods, so its recommendations are identical across nine prompts representing three expected geometries (Jaccard 1.0) and it recommends clustering for a continuous manifold (clustering-for-all 100%). It now passes only 3 of 9 prompts: Leiden matches the immunology expectations but vetoes the developmental UMAP matches. Before 0.2.0 it passed 6 of 9. Match rate alone does not describe this behavior.
+That is what failure looks like. The mock answers every prompt with the same three methods, so it scores identically across nine prompts representing three expected geometries (Jaccard 1.0) and recommends clustering for a continuous manifold (clustering-for-all 100%). Read the three together: match rate alone would not show this.
+
+The suite, its scoring vocabulary, and the limits of that scoring are documented in [experiment configurations](manyagents/configs/experiment/README.md).
 
 The same thing from Python:
 
@@ -143,34 +145,6 @@ Bare `manyagents` exits with a hint and the list of shipped experiments. Zero su
 ```
 
 Every agent sits behind one async interface, `run(task_config, input_files) -> AdapterResult`, where the result is `{success, summary, output_files, metadata?, embeddings?}`. Text adapters put their response at `output_files["raw_response"]`; Claude can add `trace` only; HF and vLLM can add `trace` plus `hidden_states` when capture is enabled. Everything is composed by Hydra config groups under `manyagents/configs/` (`agent/`, `experiment/`, `cluster/`, `logger/`, `prompts/`, `resources/`).
-
----
-
-## [the experiment](manyagents/configs/experiment/README.md)
-
-> 3 domains × 3 information conditions = 9 prompts, 3 scores
-
-`geometric_reasoning` poses the same analysis question three ways for each of three single-cell scenarios:
-
-| domain | expected geometry | ground truth includes | failure indicators include |
-|---|---|---|---|
-| immunology (PBMCs) | discrete clusters | leiden, louvain, kmeans, phenograph | pseudotime, monocle, slingshot |
-| cancer (EMT time course) | branching trajectory | slingshot, monocle3, paga, cellrank, palantir | clustering, leiden, kmeans |
-| developmental (organoids) | continuous manifold | phate, diffusion_map, umap, isomap | clustering, leiden, louvain |
-
-Condition **A** gives biological context without explicit embedding hints. **B** adds what the embedding looks like. **C** emphasizes geometry and reduces biological context, though some remains (for example single-cell data and timepoints), and the shared system prompt is still computational biology. Better performance on B/C is a hypothesis to test, not a guaranteed consequence of reasoning about structure.
-
-Three scores per agent, written to `summary.md`:
-
-- **Ground-truth match rate:** fraction of successful prompts with at least one extracted expected method and no extracted failure indicator. Higher means more passes against the configured criteria.
-- **Jaccard across prompts:** mean method-set overlap over **all successful prompt pairs**, including pairs within the same geometry. High overlap signals invariance; **lower is not always better**. With nine successful prompts there are 36 pairs, nine within a geometry. One consistent nonempty set per geometry, disjoint across geometries, scores **0.25**. Shared methods raise this value; inconsistent answers within a geometry can lower it. Two empty sets have similarity 1.0. This is an invariance signal, not an optimization objective.
-- **Clustering-for-all:** fraction of successful prompts with an extracted clustering method or phrase, regardless of expected structure. High values flag broad clustering use in this mixed-geometry design; they do not establish whether individual uses are appropriate.
-
-Scoring uses a vocabulary of named tools (clustering, trajectory, DR, cell-cycle, spatial, integration, annotation, differential expression) plus phrases such as "pseudotime analysis". Explicit local rejection cues — “do not use”, “avoid”, “instead of”, “rather than”, “not appropriate”, “would be wrong”, and related forms — filter individual occurrences, including coordinated lists. Prefix scope is limited to eight words after the cue, sentence/contrast boundaries, and new affirmative recommendation cues. A separate unrejected occurrence still counts. Thus “Avoid Leiden; use UMAP” can pass, while “Use Leiden and UMAP” fails a criterion that forbids Leiden.
-
-This remains a heuristic, not a scientific answer judge: bare hedges (“might use”), quoted or hypothetical advice, distant negation, and complex scope can still be misread. Unrejected mentions need not be definite recommendations. `ground_truth_matches` and `match_ratio` describe vocabulary overlap even when `failure_matches` blocks the pass. Execution failures are excluded from all three scores; inspect `prompts_evaluated` and `prompts_failed` alongside rates. Measurements that cannot be computed are `null` in `results.json` and `n/a` in summaries; Jaccard needs at least two successful prompts, and a missing ground-truth criterion makes the whole match rate unavailable rather than quietly narrowing the denominator.
-
-Other shipped experiments vary the framing: `invariance_full` adds periodic (cell cycle) and spatial-gradient geometries; `reasoning_baseline` uses descriptions of synthetic manifolds (swiss roll, torus) and embryoid-body data; `llm_reasoning_sweep` varies models and scenarios, while `baseline_sweep` varies adapters, datasets, algorithms, and dimensions.
 
 ---
 
@@ -267,22 +241,11 @@ The per-trace prints measure raw hidden states. The grouped `compute_metric` cal
 
 ---
 
-## adapters
+## [adapters](docs/python-api.md)
 
-> 11 classes, 12 registry keys; registration does not mean the dependency is installed
+> 11 classes, 12 registry keys — API (`claude`, `openai`, `ollama`), local (`hf`, `vllm`), compute (`manylatents`), CLI (`cellforge`, `kosmos`), in-process (`biomni`), and `mock`/`placeholder`
 
-| key | class | runs |
-|---|---|---|
-| `claude` | `ClaudeAdapter` | Anthropic API (`claude-opus-5` default); text traces |
-| `openai` | `OpenAIAdapter` | OpenAI-compatible Chat Completions (`gpt-4o` default) |
-| `ollama` | `OllamaAdapter` | `OpenAIAdapter` pointed at a local Ollama server; no hidden states |
-| `hf`, `local_llm` | `HFAdapter` | local transformers generation; hidden states |
-| `vllm` | `VLLMAdapter` | vLLM generation; HF replay for hidden states (`vllm` + `traces`) |
-| `manylatents` | `ManyLatentsAdapter` | in-process DR and geometric metrics (`traces`) |
-| `biomni` | `BiomniAdapter` | in-process biomedical agent (`full`, Anthropic key) |
-| `cellforge`, `kosmos` | `CellForgeAdapter`, `KosmosAdapter` | external local CLI installations |
-| `mock` | `MockAdapter` | deterministic responses; no external service |
-| `placeholder` | `PlaceholderAdapter` | development stub |
+Every adapter takes a config dict and returns an `AdapterResult`. Run one directly:
 
 ```python
 import asyncio
@@ -304,14 +267,9 @@ trace.steps, trace.model, trace.task                    # ReasoningStep list, Mo
 result["output_files"]["hidden_states"]                 # Path to the NPZ
 ```
 
-Built-in text adapters return a `pathlib.Path` at `raw_response`; the evaluator also accepts an inline string there. Compute adapters set `PRODUCES_TEXT_RESPONSE = False` and are rejected by the text-evaluation runner before dispatch. Response files can be overwritten by later calls; `results.json` is the durable record.
-
-**Tool-calling loop.** `manyagents.agent_loop.run_agent_loop(prompt, agent=..., tools=[...])` drives any adapter exposing `chat()` (OpenAI, Ollama, Claude) until it stops calling tools or hits `max_steps`. A `manyagents.tools.Tool` pairs a JSON Schema with a trusted sync or async callable; the returned `AgentResult` carries `answer`, the full `messages` transcript (pass it back as `history` to continue), `steps`, `stopped`, and the executed `tool_calls`. Tool bodies run with the caller's permissions.
-
-**DR workflows.** `manyagents.workflows.sequence.execute_sequence(workflow, dataset)` chains manylatents algorithms and records a `GVector` (β₀, β₁, participation ratio, local intrinsic dimension) after every step as a `TransformationTrajectory`. Needs `traces`; unavailable measurements have named outcomes, while fixed GVector numeric fields contain zero padding. Read through `gvector.metric_value(name)` to check validity; it raises for failed, unrequested, or unknown measurements.
+Registration does not mean the dependency is installed; a missing one surfaces as a failed result, not an import error. The full table, result contract, tool-calling loop, and DR workflows are in [docs/python-api.md](docs/python-api.md).
 
 ---
-
 ## trusted execution
 
 CellForge and Kosmos run local subprocesses with the caller's environment. Biomni imports `A1` from `biomni.agent` in-process and runs `agent.go` through `asyncio.to_thread`; a thread is not process isolation, and an async timeout does not stop the running thread. None of these are for untrusted task configs.
