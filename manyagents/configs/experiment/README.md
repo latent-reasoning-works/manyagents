@@ -29,6 +29,8 @@ The text-evaluation runner expects text-producing adapters. For dimensionality r
 
 ## The 3x3 geometric-reasoning design
 
+The shipped single-cell evaluation suite asks models one question: does the method you recommend fit the shape of the data? The failure it catches is easy to see, a model that recommends the same pipeline for every dataset, and the expected and forbidden methods per prompt are YAML drawn from the fixed vocabulary above. The 3×3 design and its scoring are in [experiment configurations](manyagents/configs/experiment/README.md).
+
 > 3 domains × 3 information conditions = 9 prompts, 3 scores
 
 `geometric_reasoning` poses the same analysis question three ways for each of three single-cell scenarios:

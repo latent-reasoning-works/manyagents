@@ -108,3 +108,14 @@ manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]' cluste
 Resource profiles select CPU/GPU allocations and launcher settings. The API profile exports local API keys into the job script, so protect that script and its storage. Inspect `manyagents/configs/cluster/` and `manyagents/configs/resources/` for site-specific requirements. Shop is a companion repo, not yet public.
 
 See [Config Groups](config_groups.md) for package paths and [README](../README.md#trusted-execution) for the local-code execution boundary.
+
+
+## Generation and traces
+
+### Replay and alignment
+
+Both paths record the state at the position that predicts each emitted token (the final prompt position for the first, then each new position), so the last token's own position is never captured. HF reads these during `generate()`. vLLM generates first, then a teacher-forced HF forward pass over the exact emitted token ids recovers them; under matching model conditions the two agree within numerical tolerance (the CPU test compares one small model in eval mode at `atol=rtol=1e-3`), and vLLM's own activations stay unobserved. Replay holds an HF model beside the vLLM engine, so budget memory for both. Exact ids still leave text-step alignment approximate: generation decodes and strips text, segmentation re-encodes prefixes to place pooling intervals, and stripped whitespace or tokenizer round-trips can shift them.
+
+### Segmentation modes
+
+Segmentation decides what a step is: `delimiter` (newlines; the shipped default), `tags` (`<think>…</think>` with sentence splits inside), `velocity` (peaks in cosine distance between consecutive token states, so the geometry sets the boundaries), or `hybrid`. Token states are mean-pooled per step; the experiment writes a `TraceStore`:

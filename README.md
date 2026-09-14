@@ -19,15 +19,17 @@
 
 ---
 
-manyagents is the model-facing layer of the [Latent Reasoning Works](https://github.com/latent-reasoning-works) stack: one async interface in front of Anthropic, OpenAI, Ollama, Hugging Face transformers, and vLLM, with a config dict in and an `AdapterResult` out. Built on that interface, each usable alone:
+Run one prompt through many models, score what comes back, and for local models keep the hidden states that produced it.
 
-- **An evaluation harness.** Hydra composes the run and dispatches the selected models concurrently per prompt. The shipped scorer is domain-specific: it extracts single-cell method mentions from a fixed vocabulary in `metrics/extractor.py`, checks them against per-prompt expected and forbidden lists in YAML, and aggregates per model. Another domain means editing the extractor and aggregate metrics in Python; dispatch and result files carry over.
-- **Reasoning-trace capture.** For HF and vLLM models, the selected-layer hidden states that predicted each emitted token, segmented into reasoning steps, pooled, and stored as JSON plus NPZ beside the response. [manylatents](https://github.com/latent-reasoning-works/manylatents) measures the velocity and curvature of those trajectories.
-- **A tool-calling loop** that runs your tools against the adapters implementing its async `chat()` protocol (Claude, OpenAI, Ollama).
+```bash
+uv sync
+manyagents experiment=test_wandb     # two prompts, mock agent, no keys or GPU
+```
 
-The shipped single-cell evaluation suite asks models one question: does the method you recommend fit the shape of the data? The failure it catches is easy to see, a model that recommends the same pipeline for every dataset, and the expected and forbidden methods per prompt are YAML drawn from the fixed vocabulary above. The 3×3 design and its scoring are in [experiment configurations](manyagents/configs/experiment/README.md).
-
-Where it sits: manylatents (public) is the compute layer beside it, owning dimensionality reduction and geometric metrics; manyruns, the run harness above both, imports `manyagents.adapters` and `manyagents.agent_loop`, and like the Shop cluster launchers is private for now. Reach for manyagents to talk to models and manylatents to measure arrays.
+- **Adapters.** Anthropic, OpenAI, Ollama, Hugging Face transformers and vLLM behind one async `run(config) -> AdapterResult`.
+- **Evaluation.** Hydra fans prompts across models, extracts method mentions from free text, and scores them against per-prompt expected and forbidden lists. The shipped vocabulary is single-cell bioinformatics (`metrics/extractor.py`); another domain means editing it in Python, while dispatch and result files carry over.
+- **Traces.** For HF and vLLM, the selected-layer hidden states that predicted each emitted token, segmented into steps and stored as JSON plus NPZ. [manylatents](https://github.com/latent-reasoning-works/manylatents) measures their velocity and curvature.
+- **Tool loop.** Your tools against any adapter implementing the async `chat()` protocol.
 
 ## install
 
@@ -92,29 +94,6 @@ result["metrics"]["mock"]   # {"jaccard_similarity_across_prompts": 1.0, "ground
 
 **Scoring is a heuristic.** The extractor finds mentions of the single-cell methods in its fixed vocabulary, drops any mention under a local rejection cue (“avoid”, “do not use”, “instead of”), and passes a prompt when at least one expected method survives and no configured failure indicator does. A term outside the vocabulary is invisible to both lists, and hedges, quoted advice, and distant negation get through. Jaccard averages method-set overlap over all successful prompt pairs, same-geometry pairs included: one consistent answer per geometry, disjoint across geometries, scores 0.25 on the 3×3. Treat it as an invariance signal, never as something to minimise.
 
-## how it fits together
-
-```
-  CLI                                        API
-  manyagents experiment=…                    run(["experiment=…"])
-        │                                          │
-        └───────────────────┬──────────────────────┘
-                            ▼
-                   experiment.py  run_experiment()
-                            │
-           ┌────────────────┴────────────────┐
-           ▼                                 ▼
-   prompt evaluation                  trace extraction
-   ADAPTER_REGISTRY[k]().run()        ADAPTER_REGISTRY[k]().run(build_trace=True)
-   metrics/extractor.py               inference.py   generate → segment → pool
-   metrics/llm.py                     schemas/reasoning.py   ReasoningTrace, TraceStore
-           │                                 │
-           ▼                                 ▼
-   results.json, summary.md           traces.jsonl + tensors/<id>.npz ──▶ manylatents
-```
-
-**Evaluation and trace extraction are separate workflows.** The 3×3 suite scores text descriptions of biological scenarios; `trace_extraction` runs GSM8K math. Nothing shipped measures hidden states while a model makes a biological recommendation.
-
 ## [adapters](docs/python-api.md)
 
 > 11 classes, 12 registry keys
@@ -157,6 +136,8 @@ The tool loop, `agent_loop.run_agent_loop(prompt, agent="openai", tools=[...])`,
 
 > capture and measure hidden-state trajectories
 
+Trace extraction is a separate workflow from evaluation: the shipped suite scores text descriptions, while `trace_extraction` runs GSM8K. Nothing here measures hidden states while a model makes a single-cell recommendation.
+
 A `ReasoningTrace` is one model on one task: `trace.task` (the prompt), `trace.model` (model and generation config), the response text and token counts, and `trace.steps`, segments of the response with a kind (`thinking`, `output`, `tool_call`, `tool_result`) and, for HF and vLLM, a hidden-state tensor each.
 
 ```bash
@@ -167,9 +148,9 @@ manyagents experiment=trace_extraction agent=hf agent.config.model=Qwen/Qwen3-0.
 manyagents experiment=trace_extraction agent=vllm
 ```
 
-Both paths record the state at the position that predicts each emitted token (the final prompt position for the first, then each new position), so the last token's own position is never captured. HF reads these during `generate()`. vLLM generates first, then a teacher-forced HF forward pass over the exact emitted token ids recovers them; under matching model conditions the two agree within numerical tolerance (the CPU test compares one small model in eval mode at `atol=rtol=1e-3`), and vLLM's own activations stay unobserved. Replay holds an HF model beside the vLLM engine, so budget memory for both. Exact ids still leave text-step alignment approximate: generation decodes and strips text, segmentation re-encodes prefixes to place pooling intervals, and stripped whitespace or tokenizer round-trips can shift them.
+Both paths record the state at the position that predicts each emitted token, so the last token's own position is never captured. HF reads these during `generate()`; vLLM generates first and a teacher-forced HF pass over the emitted ids recovers them, agreeing within tolerance under matching model conditions and holding both models in memory. Text-step alignment stays approximate, because segmentation re-encodes decoded text. Details and the exact caveats: [running experiments](docs/running_experiments.md#generation-and-traces).
 
-Segmentation decides what a step is: `delimiter` (newlines; the shipped default), `tags` (`<think>…</think>` with sentence splits inside), `velocity` (peaks in cosine distance between consecutive token states, so the geometry sets the boundaries), or `hybrid`. Token states are mean-pooled per step; the experiment writes a `TraceStore`:
+Segmentation decides what a step is — `delimiter` (newlines, the default), `tags`, `velocity` (peaks in cosine distance between consecutive token states), or `hybrid`. Token states are mean-pooled per step; the experiment writes a `TraceStore`:
 
 ```text
 <output_dir>/traces/

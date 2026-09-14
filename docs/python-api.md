@@ -3,6 +3,33 @@
 Using manyagents from Python rather than the CLI. See the [README](../README.md) for
 installation and the command-line quickstart.
 
+## Where manyagents sits
+
+Where it sits: manylatents (public) is the compute layer beside it, owning dimensionality reduction and geometric metrics; manyruns, the run harness above both, imports `manyagents.adapters` and `manyagents.agent_loop`, and like the Shop cluster launchers is private for now. Reach for manyagents to talk to models and manylatents to measure arrays.
+
+## How it fits together
+
+```
+  CLI                                        API
+  manyagents experiment=…                    run(["experiment=…"])
+        │                                          │
+        └───────────────────┬──────────────────────┘
+                            ▼
+                   experiment.py  run_experiment()
+                            │
+           ┌────────────────┴────────────────┐
+           ▼                                 ▼
+   prompt evaluation                  trace extraction
+   ADAPTER_REGISTRY[k]().run()        ADAPTER_REGISTRY[k]().run(build_trace=True)
+   metrics/extractor.py               inference.py   generate → segment → pool
+   metrics/llm.py                     schemas/reasoning.py   ReasoningTrace, TraceStore
+           │                                 │
+           ▼                                 ▼
+   results.json, summary.md           traces.jsonl + tensors/<id>.npz ──▶ manylatents
+```
+
+**Evaluation and trace extraction are separate workflows.** The 3×3 suite scores text descriptions of biological scenarios; `trace_extraction` runs GSM8K math. Nothing shipped measures hidden states while a model makes a biological recommendation.
+
 ## Adapters
 
 11 classes behind 12 registry keys. Registration does not mean the dependency is
