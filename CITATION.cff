@@ -4,8 +4,7 @@ type: software
 title: manyagents
 version: 0.2.0
 authors:
-  - given-names: César Miguel
-    family-names: Valdez Córdova
+  - name: "Latent Reasoning Works"
 repository-code: "https://github.com/latent-reasoning-works/manyagents"
 url: "https://github.com/latent-reasoning-works/manyagents"
 license: MIT

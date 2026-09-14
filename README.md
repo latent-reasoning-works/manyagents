@@ -228,7 +228,7 @@ If manyagents was useful in your research, a citation goes a long way:
 ```bibtex
 @software{manyagents2026,
   title     = {manyagents: Multi-agent evaluation and reasoning trace extraction},
-  author    = {Valdez C{\'o}rdova, C{\'e}sar Miguel},
+  author    = {{Latent Reasoning Works}},
   year      = {2026},
   version   = {0.2.0},
   url       = {https://github.com/latent-reasoning-works/manyagents},
