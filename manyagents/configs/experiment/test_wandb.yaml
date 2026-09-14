@@ -24,6 +24,8 @@ wandb:
 
 defaults:
   - /agent@agents.mock: mock
+  - /agent@agents.claude: claude
+  - /agent@agents.openai: openai
   - _self_
 
 system_prompt: >

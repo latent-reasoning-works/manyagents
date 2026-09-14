@@ -52,15 +52,14 @@ Core is already large: `accelerate` pulls in torch. Sync every extra you need in
 ## quickstart
 
 ```bash
-# no keys, no GPU, no downloads: two mock prompts through the evaluator
+# no keys, no GPU, no downloads
 manyagents experiment=test_wandb
 
-# the 3 x 3 suite (nine prompts) with the mock agent
-manyagents experiment=geometric_reasoning 'active_agents=[mock]'
-
-# the same nine prompts through Claude and OpenAI (needs both keys)
-manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
+# the same prompts through Claude and OpenAI (needs both keys)
+manyagents experiment=test_wandb 'active_agents=[claude,openai]'
 ```
+
+Each run writes `results.json` and `summary.md` under `output_dir`: per-prompt responses and extracted methods, then aggregate scores per model.
 
 One job per agent, results kept per job:
 
@@ -69,17 +68,6 @@ One job per agent, results kept per job:
 manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 ```
 <!-- /example:evaluation-sweep -->
-
-The 3×3 mock run prints this:
-
-```text
-mock:
-  Jaccard Similarity: 1.00 (all successful pairs; not an optimization objective)
-  Ground Truth Match: 33.3% (higher is better)
-  Clustering-for-All: 100.0% (lower is better)
-```
-
-That is what failure looks like. The mock answers every prompt with the same three methods: identical sets across three expected geometries (Jaccard 1.0), clustering recommended for a continuous manifold (clustering-for-all 100%). Read the three together; match rate alone hides it.
 
 The same thing from Python:
 
@@ -92,7 +80,7 @@ result["metrics"]["mock"]   # {"jaccard_similarity_across_prompts": 1.0, "ground
 
 `run()` composes the same Hydra config as the CLI and keeps its exit semantics: `SystemExit` propagates when nothing succeeded, so catch it when embedding. Bare `manyagents` lists the shipped experiments and exits nonzero. The sweep's `local_llm` runs `Qwen/Qwen3-0.6B`; `agents.local_llm.agent.config.model=<id>` picks another.
 
-**Scoring is a heuristic.** The extractor finds mentions of the single-cell methods in its fixed vocabulary, drops any mention under a local rejection cue (“avoid”, “do not use”, “instead of”), and passes a prompt when at least one expected method survives and no configured failure indicator does. A term outside the vocabulary is invisible to both lists, and hedges, quoted advice, and distant negation get through. Jaccard averages method-set overlap over all successful prompt pairs, same-geometry pairs included: one consistent answer per geometry, disjoint across geometries, scores 0.25 on the 3×3. Treat it as an invariance signal, never as something to minimise.
+**Scoring is a heuristic**, not an answer judge: it matches method mentions against a fixed vocabulary and drops those under a rejection cue. What it catches and what slips past is in [experiment configurations](manyagents/configs/experiment/README.md).
 
 ## [adapters](docs/python-api.md)
 
@@ -136,7 +124,7 @@ The tool loop, `agent_loop.run_agent_loop(prompt, agent="openai", tools=[...])`,
 
 > capture and measure hidden-state trajectories
 
-Trace extraction is a separate workflow from evaluation: the shipped suite scores text descriptions, while `trace_extraction` runs GSM8K. Nothing here measures hidden states while a model makes a single-cell recommendation.
+Trace extraction is a separate workflow from evaluation: evaluation scores response text, `trace_extraction` generates on a dataset and keeps the states. Neither captures states while the other scores.
 
 A `ReasoningTrace` is one model on one task: `trace.task` (the prompt), `trace.model` (model and generation config), the response text and token counts, and `trace.steps`, segments of the response with a kind (`thinking`, `output`, `tool_call`, `tool_result`) and, for HF and vLLM, a hidden-state tensor each.
 

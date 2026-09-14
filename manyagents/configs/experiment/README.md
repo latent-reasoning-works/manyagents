@@ -64,3 +64,10 @@ manyagents 'hydra.searchpath=[file:///absolute/path/to/your_project/configs]' ex
 ```
 
 Keep project-specific data and model choices in project configs. Keep cluster paths and resource allocations in the `cluster=` and `resources=` config groups.
+
+
+## Reading the scores
+
+That is what failure looks like. The mock answers every prompt with the same three methods: identical sets across three expected geometries (Jaccard 1.0), clustering recommended for a continuous manifold (clustering-for-all 100%). Read the three together; match rate alone hides it.
+
+**Scoring is a heuristic.** The extractor finds mentions of the single-cell methods in its fixed vocabulary, drops any mention under a local rejection cue (“avoid”, “do not use”, “instead of”), and passes a prompt when at least one expected method survives and no configured failure indicator does. A term outside the vocabulary is invisible to both lists, and hedges, quoted advice, and distant negation get through. Jaccard averages method-set overlap over all successful prompt pairs, same-geometry pairs included: one consistent answer per geometry, disjoint across geometries, scores 0.25 on the 3×3. Treat it as an invariance signal, never as something to minimise.
