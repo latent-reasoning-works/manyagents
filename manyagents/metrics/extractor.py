@@ -85,28 +85,103 @@ def _match_any_pattern(text: str, patterns: List[str]) -> bool:
     return any(re.search(p, text) for p in patterns)
 
 
+# Deliberately local English rules, not a semantic recommendation judge. Keep
+# sentence/contrast boundaries and affirmative cues so rejecting an alternative
+# does not suppress a recommendation elsewhere (including another occurrence).
+_CLAUSE_BOUNDARY = re.compile(
+    r"[;!?\n]|(?<!\w)\.|\.(?!\w)|\b(?:but|however|yet|whereas)\b|\binstead\b(?!\s+of)"
+)
+_REJECTION = re.compile(
+    r"\b(?:do\s+not|don't|should\s+not|shouldn't|would\s+not|wouldn't|"
+    r"cannot|can't|must\s+not|mustn't)\s+(?:\w+\s+){0,2}?(?:use|recommend|choose|apply)\b"
+    r"|\b(?:avoid|reject|neither)\b"
+    r"|\b(?:instead\s+of|rather\s+than)\b(?:\s+(?:use|recommend|choose|apply|prefer|try)\b)?"
+    r"|\b(?:wrong|inappropriate|unsuitable|not\s+appropriate|not\s+suitable)\s+to\s+(?:use|recommend|choose|apply)\b"
+    r"|\bnot\s+(?:use|recommend|choose|apply)\b|\bnot\s*$"
+)
+_AFFIRMATION = re.compile(r"\b(?:use|recommend|choose|apply|prefer|try)\b")
+_NEGATIVE_PREDICATE = (
+    r"(?:(?:(?:is|are|would\s+be|will\s+be)\s+)?"
+    r"(?:not\s+(?:appropriate|suitable|recommended|useful)|wrong|inappropriate|unsuitable)"
+    r"|(?:isn't|aren't)\s+(?:appropriate|suitable|recommended|useful)"
+    r"|(?:should\s+not|shouldn't|must\s+not|mustn't)\s+be\s+(?:used|recommended)"
+    r"|(?:should|must)\s+be\s+(?:avoided|rejected))\b"
+)
+
+
+def _is_rejected(text: str, start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    """Check a mention's clause, with an eight-word prefix scope and list suffix.
+
+    Affirmative occurrences win when the same method is also rejected elsewhere.
+    Bare hedges (e.g. 'might use') remain mentions; absence of a rejection is not
+    proof of endorsement. Report that limitation wherever scores are interpreted.
+    """
+    left = 0
+    right = len(text)
+    for boundary in _CLAUSE_BOUNDARY.finditer(text):
+        if boundary.end() <= start:
+            left = boundary.end()
+        elif boundary.start() >= end:
+            right = boundary.start()
+            break
+    before = text[left:start]
+    # A comma followed by a new subject is a boundary; a comma-separated method
+    # list is not. This protects 'Avoid Leiden, UMAP is appropriate'.
+    after = text[end:right]
+    if ',' in before and re.match(r"\s+(?:is|can\s+be)\s+(?:appropriate|suitable|useful|recommended|better)\b", after):
+        before = before.rsplit(',', 1)[1]
+    # Do not turn double negation into rejection.
+    before = re.sub(r"\b(?:do\s+not|don't)\s+(?:avoid|reject)\b", "use", before)
+    rejections = list(_REJECTION.finditer(before))
+    if rejections:
+        rejection = rejections[-1]
+        tail = before[rejection.end():]
+        if len(re.findall(r"\b\w+\b", tail)) <= 8 and not _AFFIRMATION.search(tail):
+            return True
+
+    # Allow a shared negative predicate after a coordinated list of known
+    # mentions: 'UMAP and PHATE are not appropriate'. No arbitrary prose span.
+    for other_start, other_end in sorted(set(spans), reverse=True):
+        if end <= other_start < other_end <= right:
+            offset_start, offset_end = other_start - end, other_end - end
+            after = after[:offset_start] + 'METHOD' + after[offset_end:]
+    return bool(re.match(
+        r"\s*:?\s*(?:(?:,\s*(?:(?:and|or|nor)\s+)?|(?:and|or|nor)\s+)METHOD\s*)*"
+        + _NEGATIVE_PREDICATE, after,
+    ))
+
+
 def _find_method_matches(text_lower: str) -> Dict[str, Set[str]]:
-    """Find all method matches organized by category."""
+    """Find vocabulary/phrase mentions that have at least one unrejected use."""
     matches: Dict[str, Set[str]] = {cat: set() for cat in METHOD_CATEGORIES}
-
+    mentions = []
     for category, methods in METHOD_CATEGORIES.items():
-        for method in methods:
-            pattern_base = method.replace('_', r'[\s_\-]?')
-            if re.search(rf'\b{pattern_base}\b', text_lower) or re.search(rf'\b{method}\b', text_lower):
-                matches[category].add(method)
+        for method in sorted(methods):
+            pattern = re.escape(method).replace('_', r'[\s_\-]?')
+            for match in re.finditer(rf'\b{pattern}\b', text_lower):
+                mentions.append((category, method, match.start(), match.end()))
 
-    # Add implicit mentions from phrase patterns
-    _implicit_map = [('trajectory', 'trajectory_inference'), ('clustering', 'clustering'), ('cell_cycle', 'cell_cycle_scoring')]
-    for category, implicit_method in _implicit_map:
-        if _match_any_pattern(text_lower, _PHRASE_PATTERNS[category]):
-            matches[category].add(implicit_method)
+    implicit_map = [('trajectory', 'trajectory_inference'), ('clustering', 'clustering'), ('cell_cycle', 'cell_cycle_scoring')]
+    for category, method in implicit_map:
+        for pattern in _PHRASE_PATTERNS[category]:
+            for match in re.finditer(pattern, text_lower):
+                mentions.append((category, method, match.start(), match.end()))
 
+    # Nested aliases/implicit phrases may occupy the same text. Only maximal
+    # spans are needed to mask coordinated alternatives in suffix checks.
+    spans = sorted({(start, end) for _, _, start, end in mentions})
+    spans = [(start, end) for start, end in spans
+             if not any(a <= start and end <= b and (a, b) != (start, end) for a, b in spans)]
+    for category, method, start, end in mentions:
+        if not _is_rejected(text_lower, start, end, spans):
+            matches[category].add(method)
     return matches
 
 
 def extract_methods(text: str, include_categories: bool = False) -> Dict[str, Any]:
     """Extract method recommendations from LLM response text."""
-    text_lower = text.lower()
+    # Formatting and curly apostrophes should not hide local rejection cues.
+    text_lower = re.sub(r"[*`]+", "", text.lower().replace("’", "'"))
     matches = _find_method_matches(text_lower)
 
     result = {
@@ -134,7 +209,11 @@ def check_ground_truth_match(
     ground_truth: List[str] | None,
     failure_indicators: List[str]
 ) -> Tuple[bool | None, Dict[str, Any]]:
-    """Check ground truth criteria; an absent/empty criterion is unavailable."""
+    """Require an expected mention and no failure mentions; absent criteria are unavailable.
+
+    ``match_ratio`` remains vocabulary coverage, even when a failure blocks the
+    boolean pass. Callers must supply the negation-filtered extracted methods.
+    """
     extracted_set = _normalize_set(extracted)
     ground_truth_set = _normalize_set(ground_truth or [])
     failure_set = _normalize_set(failure_indicators)
@@ -142,7 +221,7 @@ def check_ground_truth_match(
     matches = extracted_set & ground_truth_set
     failures = extracted_set & failure_set
 
-    is_success = bool(matches) if ground_truth_set else None
+    is_success = bool(matches) and not failures if ground_truth_set else None
 
     return is_success, {
         'ground_truth_matches': sorted(matches),

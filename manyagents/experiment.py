@@ -110,9 +110,24 @@ def _save_results(experiment_results: Dict[str, Any], output_dir: Path, experime
         f.write("## Results\n\n")
         f.write(summary_md)
         f.write("\n\n## Interpretation\n\n")
-        f.write("- **Jaccard (Invariance):** Higher = same recommendations across prompts (BAD)\n")
-        f.write("- **Ground Truth Match:** Higher = geometry-aware recommendations (GOOD)\n")
-        f.write("- **Clustering-for-All:** Higher = always recommends clustering (BAD)\n")
+        f.write(
+            "- **Jaccard (Invariance):** Mean overlap across all successful prompt pairs, "
+            "including same-geometry pairs. Nine prompts yield 36 pairs; consistent nonempty "
+            "sets disjoint across three geometries score 0.25 (nine same-geometry pairs). "
+            "Shared methods can raise it; inconsistency within a geometry can lower it. "
+            "High overlap signals invariance, but lower is not an optimization objective. "
+            "Two empty sets have similarity 1.0.\n"
+        )
+        f.write(
+            "- **Ground Truth Match:** Fraction of successful prompts with an extracted "
+            "expected method and no extracted failure indicator. Local rejections are filtered; "
+            "bare hedges and complex scope can still count. This is not scientific adjudication.\n"
+        )
+        f.write(
+            "- **Clustering-for-All:** Fraction of successful prompts with extracted clustering "
+            "methods or phrases. High values flag broad use across the mixed-geometry suite. "
+            "Inspect prompts_evaluated and prompts_failed alongside all three scores.\n"
+        )
 
     log.info(f"Summary saved to {summary_path}")
 
@@ -124,7 +139,7 @@ def _print_summary(metrics: Dict[str, Dict[str, float | None]]) -> None:
     print("=" * 60)
     for agent_name, m in metrics.items():
         print(f"\n{agent_name}:")
-        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')} (lower is better)")
+        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')} (all successful pairs; not an optimization objective)")
         print(f"  Ground Truth Match: {format_metric(m.get('ground_truth_match_rate'), '.1%')} (higher is better)")
         print(f"  Clustering-for-All: {format_metric(m.get('clustering_for_all_rate'), '.1%')} (lower is better)")
 

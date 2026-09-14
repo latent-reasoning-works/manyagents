@@ -137,3 +137,20 @@ def temp_output_dir(tmp_path):
     output_dir = tmp_path / "outputs"
     output_dir.mkdir()
     return output_dir
+
+
+@pytest.fixture
+def documented_example():
+    """Extract one fenced example by stable markers, independent of prose/heading."""
+    import re
+
+    def extract(markdown, name, language):
+        start, end = f"<!-- example:{name} -->", f"<!-- /example:{name} -->"
+        assert markdown.count(start) == markdown.count(end) == 1, f"Missing/duplicate example: {name}"
+        section = markdown.split(start, 1)[1].split(end, 1)[0]
+        blocks = re.findall(r"^\s*```([^\n]*)\n(.*?)^\s*```\s*$", section, re.M | re.S)
+        assert len(blocks) == 1 and blocks[0][0] == language, f"Expected one {language} fence: {name}"
+        code = blocks[0][1]
+        return code.replace("\\\n", "") if language == "bash" else code
+
+    return extract

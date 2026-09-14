@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+**Scoring is not comparable across this upgrade from 0.1.1.** This is a minor
+version deliberately: unlike the deliberately numbered 0.1.1 release, this
+change alters what a ground-truth pass means, including for already saved text.
+Previously collected match rates can be inflated by refusals and hedges that
+mention expected methods, and by answers that also name configured failure
+methods. Do not combine rates across versions. Re-extract saved `raw_response`
+text and recompute all scores with 0.2.0; recomputing from old `extracted_methods`
+alone cannot recover which mentions were rejected. Preserve the old results
+and record the scorer version with comparisons.
+
+### Recommendation extraction and ground-truth scoring
+
+- Explicit local English rejections now exclude method occurrences: “do not
+  use”, “don't recommend”, “avoid”, “neither … nor”, “instead of”, “rather than”,
+  “not appropriate”, “would be wrong”, and related negative predicates. Named
+  methods and implicit phrases use the same filter, including coordinated lists.
+- Scope ends at sentence, semicolon, newline, or contrast boundaries. Prefix
+  cues extend at most eight words beyond the cue and stop at a new affirmative
+  use/recommend/choose/apply/prefer/try cue. A separate unrejected occurrence
+  still counts, preserving recommendations that discuss rejected alternatives.
+  Markdown emphasis and curly apostrophes are normalized for cue detection.
+- A ground-truth pass requires at least one extracted expected method **and no
+  extracted `failure_indicators` match**. Rejected alternatives cannot trigger
+  that veto. `failure_matches` and `ground_truth_matches` remain diagnostics;
+  `match_ratio` remains expected-vocabulary coverage, not the boolean pass.
+  Absent ground-truth criteria remain unavailable, even with failure matches.
+- This remains a vocabulary/phrase heuristic, not a scientific answer judge.
+  Bare hedges (“might use”), quoted or hypothetical advice, distant negation,
+  and complex scope are not reliably adjudicated. Unrejected mentions can
+  still count without a definite recommendation. An all-refusal response is a
+  successful execution but fails the match when no expected methods survive.
+- The fixed mock's 3×3 match rate changes from **6/9 (66.7%) to 3/9 (33.3%)**:
+  its Leiden recommendation now blocks the developmental UMAP passes. Its
+  Jaccard remains 1.0 and clustering-for-all remains 100%.
+
+### Jaccard interpretation (definition unchanged)
+
+Jaccard still averages **all successful prompt pairs**, including same-geometry
+pairs; two empty sets have similarity 1.0. Nine successful prompts yield 36
+pairs, nine within the same geometry. One consistent nonempty method set per
+geometry, disjoint across geometries, scores **0.25**. Shared methods can raise
+that value; inconsistency within a geometry can lower it. High overlap remains
+an invariance signal, but “lower is better” is not a valid objective. The console
+now says so. No geometry-aware field is added and no published metric is
+redefined. Extraction changes can nevertheless alter Jaccard and clustering
+rates, so those also require re-extraction for comparisons across versions.
+
+
+### Documentation and executable examples
+
+The README now leads with “test the recommendation, measure the trace” and
+states that evaluation and GSM8K trace extraction are separate workflows. It
+corrects capture/replay, layer normalization, direct-Python-only controls,
+storage, logging, and cluster claims. Developer docs describe
+`generate_with_hooks` as unwired; it is retained for a separate compatibility
+review. Executable examples now use stable markers and fenced-block extraction,
+including shell continuations; geometry checks assert real outputs without
+incidental example variable names.
+
 ## 0.1.1
 
 **0.1.1 is not a drop-in upgrade from 0.1.0.** The version remains 0.1.1 deliberately; the patch version does not imply API, result-schema, or experimental comparability. Review these migrations before upgrading custom adapters, readers, and stored trajectories.
