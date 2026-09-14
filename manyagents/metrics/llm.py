@@ -25,6 +25,11 @@ def compute_pairwise_jaccard(method_sets: Dict[str, Set[str]]) -> Dict[str, Any]
     """
     Compute pairwise Jaccard similarity between all method sets.
 
+    This includes same-geometry pairs: nine prompts (three geometries x three
+    conditions) with consistent, nonempty disjoint answers score 9/36 = 0.25.
+    Within-geometry inconsistency can score lower. Interpret as invariance,
+    not an objective to minimize; two empty sets have similarity 1.0.
+
     Args:
         method_sets: Dict mapping prompt_id -> set of methods
 

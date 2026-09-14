@@ -124,7 +124,7 @@ def _print_summary(metrics: Dict[str, Dict[str, float | None]]) -> None:
     print("=" * 60)
     for agent_name, m in metrics.items():
         print(f"\n{agent_name}:")
-        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')} (lower is better)")
+        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')} (all successful pairs; not an optimization objective)")
         print(f"  Ground Truth Match: {format_metric(m.get('ground_truth_match_rate'), '.1%')} (higher is better)")
         print(f"  Clustering-for-All: {format_metric(m.get('clustering_for_all_rate'), '.1%')} (lower is better)")
 

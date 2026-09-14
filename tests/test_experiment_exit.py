@@ -111,7 +111,8 @@ def test_undefined_metrics_in_json_console_and_markdown(tmp_path, capsys):
     _print_summary(result["metrics"])
     console = capsys.readouterr().out
     assert console.count("n/a") == 3
-    assert console.count("lower is better") == 2
+    assert console.count("lower is better") == 1
+    assert "all successful pairs; not an optimization objective" in console
     assert console.count("higher is better") == 1
 
 

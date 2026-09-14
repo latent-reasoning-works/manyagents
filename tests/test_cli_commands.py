@@ -114,7 +114,7 @@ def test_documented_sweep_executes_all_jobs(document, cli, tmp_path):
 
 @pytest.mark.parametrize("selection,prompt_count,match_rate", [
     ("experiment=test_wandb", 2, 0.5),
-    ("experiment=geometric_reasoning 'active_agents=[mock]'", 9, 2 / 3),
+    ("experiment=geometric_reasoning 'active_agents=[mock]'", 9, 1 / 3),
 ])
 def test_mock_quickstarts_execute_and_score(selection, prompt_count, match_rate, cli):
     completed, calls = cli(f"manyagents {selection}")

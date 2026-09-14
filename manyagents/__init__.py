@@ -25,4 +25,4 @@ For config merging and building, see `manyagents.config_utils`:
 - `deep_merge()`: Recursive dict merging
 - `build_hydra_overrides()`: Convert dicts to Hydra override strings
 """
-__version__ = "0.1.1"
+__version__ = "0.2.0"
