@@ -7,7 +7,7 @@
 
               m a n y a g e n t s
 
-       test the recommendation, measure the trace
+          ask many models, keep the trace
 </pre>
 
 [![CI](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml/badge.svg)](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml)
@@ -19,11 +19,15 @@
 
 ---
 
-manyagents asks one question of many language models: **does the analysis you recommend fit the geometry of the data?** The shipped suite expects clustering for discrete groups, trajectory inference for branching differentiation, and manifold methods for continuous structure. It scores text descriptions against configured expectations; it does not inspect the underlying biological datasets. The same question is posed with more and less biological context, and the scoring is built to catch the failure that matters: a model that recommends the same pipeline regardless of what the data looks like.
+manyagents is the model-facing layer of the [Latent Reasoning Works](https://github.com/latent-reasoning-works) stack: one async interface in front of Anthropic, OpenAI, Ollama, Hugging Face transformers, and vLLM, with a config dict in and an `AdapterResult` out. Built on that interface, each usable alone:
 
-For local models, manyagents also records **hidden-state trajectories**, segmented into text steps and stored beside the response, for velocity and curvature measurements in [manylatents](https://github.com/latent-reasoning-works/manylatents). HF captures states during generation; vLLM generates first and uses a subsequent HF replay. The shipped Qwen `layers: [-1]` captures the post-final-normalization hidden state, not the pre-normalization residual stream.
+- **An evaluation harness.** Hydra composes the run and dispatches the selected models concurrently per prompt. The shipped scorer is domain-specific: it extracts single-cell method mentions from a fixed vocabulary in `metrics/extractor.py`, checks them against per-prompt expected and forbidden lists in YAML, and aggregates per model. Another domain means editing the extractor and aggregate metrics in Python; dispatch and result files carry over.
+- **Reasoning-trace capture.** For HF and vLLM models, the selected-layer hidden states that predicted each emitted token, segmented into reasoning steps, pooled, and stored as JSON plus NPZ beside the response. [manylatents](https://github.com/latent-reasoning-works/manylatents) measures the velocity and curvature of those trajectories.
+- **A tool-calling loop** that runs your tools against the adapters implementing its async `chat()` protocol (Claude, OpenAI, Ollama).
 
-**Evaluation and trace extraction are currently separate workflows:** the 3×3 evaluation scores biological scenario descriptions, while `trace_extraction` runs GSM8K math tasks. The examples do not measure hidden states while making biological recommendations. manylatents is the compute layer below it (public). manyRuns (run harness) and Shop (cluster launchers) are companion repos, not yet public.
+The shipped single-cell evaluation suite asks models one question: does the method you recommend fit the shape of the data? The failure it catches is easy to see, a model that recommends the same pipeline for every dataset, and the expected and forbidden methods per prompt are YAML drawn from the fixed vocabulary above. The 3×3 design and its scoring are in [experiment configurations](manyagents/configs/experiment/README.md).
+
+Where it sits: manylatents (public) is the compute layer beside it, owning dimensionality reduction and geometric metrics; manyruns, the run harness above both, imports `manyagents.adapters` and `manyagents.agent_loop`, and like the Shop cluster launchers is private for now. Reach for manyagents to talk to models and manylatents to measure arrays.
 
 ## install
 
@@ -32,40 +36,16 @@ Python **3.11–3.12**, from a source checkout:
 ```bash
 git clone https://github.com/latent-reasoning-works/manyagents.git
 cd manyagents && uv sync            # core: API adapters, mock, local HF generation
-```
 
-Extras:
-
-```bash
-uv sync --extra traces               # geometry, segmentation, datasets (GSM8K)
+uv sync --extra traces               # manylatents, segmentation, datasets (GSM8K)
 uv sync --extra vllm                 # vLLM generation on a supported GPU
 uv sync --extra traces --extra vllm  # vLLM generation + HF hidden-state replay
-uv sync --extra full                 # traces + W&B + Biomni; does not include vLLM
+uv sync --extra full                 # traces + W&B + Biomni; vLLM stays separate
 ```
 
-Core is already a large install: `accelerate` pulls in **torch**. Plain vLLM generation needs only `vllm` beyond core and loads neither an HF model nor manylatents. `--extra wandb` adds evaluation logging on its own; the default dev group (pytest, ruff) is synced automatically, and `--extra dev` adds pre-commit.
+Core is already large: `accelerate` pulls in torch. Sync every extra you need in one command, then activate `.venv` or prefix commands with `uv run --no-sync` so the extras stay put. API adapters need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; Ollama needs a running server with a pulled model; large HF models and vLLM need a GPU. This page describes 0.2.0, which is this checkout; the previous public release installs with `uv pip install "manyagents @ git+https://github.com/latent-reasoning-works/manyagents@v0.1.1"`.
 
-Activate with `source .venv/bin/activate`, or prefix commands with `uv run --no-sync` so the extras you synced stay put.
-
-<details>
-<summary>installing the previous public release as a dependency</summary>
-
-```bash
-uv pip install "manyagents @ git+https://github.com/latent-reasoning-works/manyagents@v0.1.1"
-```
-
-This pins the previous public scorer. For the 0.2.0 changes described here, use this source checkout; no 0.2.0 tag is assumed.
-
-</details>
-
-<details>
-<summary>what runs where</summary>
-
-Laptop: Claude/OpenAI API clients, a local Ollama server, the mock agent, and small HF models. GPU: large HF models and vLLM. API adapters need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; Ollama needs a running server and a pulled model.
-
-</details>
-
-**Upgrading to 0.2.0:** scoring is **not comparable across this upgrade**. Re-extract stored response text before comparing rates: local rejections are now filtered and failure-indicator matches block a ground-truth pass. The [changelog](CHANGELOG.md) explains the scoring change and earlier 0.1.1 migrations for adapters, exit semantics, and legacy GVector data.
+**Upgrading from 0.1.1:** scores are **incomparable across this upgrade**. Local rejections are now filtered and a failure-indicator match blocks a pass, so re-extract stored `raw_response` text before comparing rates. Details in the [changelog](CHANGELOG.md).
 
 ## quickstart
 
@@ -80,7 +60,7 @@ manyagents experiment=geometric_reasoning 'active_agents=[mock]'
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 ```
 
-One job per agent, four prompts each, results kept per job:
+One job per agent, results kept per job:
 
 <!-- example:evaluation-sweep -->
 ```bash
@@ -88,7 +68,7 @@ manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai
 ```
 <!-- /example:evaluation-sweep -->
 
-The 3×3 `geometric_reasoning` mock run prints this:
+The 3×3 mock run prints this:
 
 ```text
 mock:
@@ -97,9 +77,7 @@ mock:
   Clustering-for-All: 100.0% (lower is better)
 ```
 
-That is what failure looks like. The mock answers every prompt with the same three methods, so it scores identically across nine prompts representing three expected geometries (Jaccard 1.0) and recommends clustering for a continuous manifold (clustering-for-all 100%). Read the three together: match rate alone would not show this.
-
-The suite, its scoring vocabulary, and the limits of that scoring are documented in [experiment configurations](manyagents/configs/experiment/README.md).
+That is what failure looks like. The mock answers every prompt with the same three methods: identical sets across three expected geometries (Jaccard 1.0), clustering recommended for a continuous manifold (clustering-for-all 100%). Read the three together; match rate alone hides it.
 
 The same thing from Python:
 
@@ -110,20 +88,11 @@ result = run(["experiment=test_wandb"])
 result["metrics"]["mock"]   # {"jaccard_similarity_across_prompts": 1.0, "ground_truth_match_rate": 0.5, ...}
 ```
 
-`run()` composes the same Hydra config as the CLI and keeps its exit semantics: `SystemExit` propagates when nothing succeeded, so catch it explicitly when embedding.
+`run()` composes the same Hydra config as the CLI and keeps its exit semantics: `SystemExit` propagates when nothing succeeded, so catch it when embedding. Bare `manyagents` lists the shipped experiments and exits nonzero. The sweep's `local_llm` runs `Qwen/Qwen3-0.6B`; `agents.local_llm.agent.config.model=<id>` picks another.
 
-<details>
-<summary>sweep notes</summary>
+**Scoring is a heuristic.** The extractor finds mentions of the single-cell methods in its fixed vocabulary, drops any mention under a local rejection cue (“avoid”, “do not use”, “instead of”), and passes a prompt when at least one expected method survives and no configured failure indicator does. A term outside the vocabulary is invisible to both lists, and hedges, quoted advice, and distant negation get through. Jaccard averages method-set overlap over all successful prompt pairs, same-geometry pairs included: one consistent answer per geometry, disjoint across geometries, scores 0.25 on the 3×3. Treat it as an invariance signal, never as something to minimise.
 
-The sweep uses agent names defined by `invariance_full`: `claude`, `openai`, `local_llm` (it also defines `biomni`). The local job runs HF with `Qwen/Qwen3-0.6B`; pick another Hub ID or path with `agents.local_llm.agent.config.model=<id>`. The `output_dir` override keeps each job's `results.json` and `summary.md` under Hydra's numbered multirun directory. `--cfg job` prints the composed config without running it and cannot be combined with `--multirun`.
-
-Bare `manyagents` exits with a hint and the list of shipped experiments. Zero successful evaluations exit nonzero; partial failures are recorded alongside successes.
-
-</details>
-
----
-
-## architecture
+## how it fits together
 
 ```
   CLI                                        API
@@ -144,26 +113,51 @@ Bare `manyagents` exits with a hint and the list of shipped experiments. Zero su
    results.json, summary.md           traces.jsonl + tensors/<id>.npz ──▶ manylatents
 ```
 
-Every agent sits behind one async interface, `run(task_config, input_files) -> AdapterResult`, where the result is `{success, summary, output_files, metadata?, embeddings?}`. Text adapters put their response at `output_files["raw_response"]`; Claude can add `trace` only; HF and vLLM can add `trace` plus `hidden_states` when capture is enabled. Everything is composed by Hydra config groups under `manyagents/configs/` (`agent/`, `experiment/`, `cluster/`, `logger/`, `prompts/`, `resources/`).
+**Evaluation and trace extraction are separate workflows.** The 3×3 suite scores text descriptions of biological scenarios; `trace_extraction` runs GSM8K math. Nothing shipped measures hidden states while a model makes a biological recommendation.
 
----
+## [adapters](docs/python-api.md)
+
+> 11 classes, 12 registry keys
+
+| key | runs | trace | hidden states |
+|---|---|---|---|
+| `claude` | Anthropic API | text steps with `build_trace=True` | no |
+| `openai`, `ollama` | OpenAI-compatible API; Ollama is a local server | no | no |
+| `hf`, `local_llm` | local transformers generation | yes | the predicting position at each decode step of `generate()` |
+| `vllm` | vLLM generation | yes | one HF forward pass over the emitted token ids |
+| `manylatents` | in-process DR and metrics (`traces`) | n/a | n/a |
+| `biomni`, `cellforge`, `kosmos` | external agents: in-process, CLI, CLI | n/a | n/a |
+| `mock`, `placeholder` | deterministic responses; development stub | n/a | n/a |
+
+Every adapter takes a config dict and returns `{success, summary, output_files, metadata?, embeddings?}`. Text adapters put the response at `output_files["raw_response"]`; a missing optional dependency comes back as a failed result. Run one directly:
+
+```python
+import asyncio
+from manyagents.adapters import ADAPTER_REGISTRY
+from manyagents.schemas import ReasoningTrace
+
+adapter = ADAPTER_REGISTRY["hf"]()
+result = asyncio.run(adapter.run({
+    "prompt": "If a train travels 60 km in 1.5 hours, what is its average speed?",
+    "system_prompt": "Solve step by step, one step per line.",
+    "model": "Qwen/Qwen3-0.6B", "max_new_tokens": 96,
+    "build_trace": True, "capture_hidden_states": True, "layers": [-1],
+}, {}))
+if not result["success"]:
+    raise RuntimeError(result["summary"])
+text  = result["output_files"]["raw_response"].read_text()
+trace = ReasoningTrace.from_json(result["output_files"]["trace"].read_text())
+trace.steps, trace.model, trace.task                    # ReasoningStep list, ModelInfo, TaskInfo
+result["output_files"]["hidden_states"]                 # Path to the NPZ
+```
+
+The tool loop, `agent_loop.run_agent_loop(prompt, agent="openai", tools=[...])`, uses a second, chat-shaped protocol: a registered adapter's `await chat(messages, tools=..., model=...)` returning the assistant message, its text, and normalized tool calls (`claude`, `openai`, `ollama` implement it). The loop executes the calls the model makes and repeats until it stops or `max_steps` runs out. Tool bodies run with your permissions. The result contract, the loop, and DR workflows are in [docs/python-api.md](docs/python-api.md).
 
 ## [reasoning traces](docs/running_experiments.md#generation-and-traces)
 
 > capture and measure hidden-state trajectories
 
-A `ReasoningTrace` is one model on one task: the prompt (`trace.task`), the model and generation config (`trace.model`), the response text, token counts, and a list of `ReasoningStep`s, each a segment of the response with a kind (`thinking`, `output`, `tool_call`, `tool_result`) and, for local models, a companion hidden-state tensor.
-
-| adapter | trace | hidden states | how |
-|---|---|---|---|
-| `claude` | text steps | no | API response blocks, `build_trace=True` |
-| `openai`, `ollama` | no | no | generation only |
-| `hf` | yes | yes | HF `generate(output_hidden_states=True)`; last position per decode step |
-| `vllm` | yes | yes | vLLM generates; one HF forward pass over the emitted token ids recovers states |
-
-vLLM returns the exact prompt and completion token IDs. An HF teacher-forced forward pass over those IDs computes corresponding HF hidden states without a string round-trip for replay. Under matching model conditions, replay agrees with HF generation-time capture within numerical tolerance (the CPU comparison test uses `atol=rtol=1e-3`); this does not recover vLLM's internal activations bit for bit. Replay holds an **HF model alongside the vLLM engine**, so budget memory for both.
-
-The direct Python `inference.extract_traces_batch` batches generation in one vLLM call, then replays each sequence separately. The Hydra command below does **not** call that function: it loops over tasks. Exact replay IDs also do not guarantee exact text-step alignment: segmentation re-encodes decoded text, and stripping leading whitespace or tokenizer round-trips can shift pooling intervals.
+A `ReasoningTrace` is one model on one task: `trace.task` (the prompt), `trace.model` (model and generation config), the response text and token counts, and `trace.steps`, segments of the response with a kind (`thinking`, `output`, `tool_call`, `tool_result`) and, for HF and vLLM, a hidden-state tensor each.
 
 ```bash
 # HF capture: --extra traces; downloads Qwen/Qwen3-0.6B and GSM8K
@@ -173,7 +167,9 @@ manyagents experiment=trace_extraction agent=hf agent.config.model=Qwen/Qwen3-0.
 manyagents experiment=trace_extraction agent=vllm
 ```
 
-Segmentation decides what a "step" is: `delimiter` (newlines; the shipped default), `tags` (`<think>…</think>` with sentence splits inside), `velocity` (peaks in cosine distance between consecutive token states, so the boundaries come from the geometry itself), or `hybrid`. Token states are mean-pooled per step. The experiment writes a `TraceStore`:
+Both paths record the state at the position that predicts each emitted token (the final prompt position for the first, then each new position), so the last token's own position is never captured. HF reads these during `generate()`. vLLM generates first, then a teacher-forced HF forward pass over the exact emitted token ids recovers them; under matching model conditions the two agree within numerical tolerance (the CPU test compares one small model in eval mode at `atol=rtol=1e-3`), and vLLM's own activations stay unobserved. Replay holds an HF model beside the vLLM engine, so budget memory for both. Exact ids still leave text-step alignment approximate: generation decodes and strips text, segmentation re-encodes prefixes to place pooling intervals, and stripped whitespace or tokenizer round-trips can shift them.
+
+Segmentation decides what a step is: `delimiter` (newlines; the shipped default), `tags` (`<think>…</think>` with sentence splits inside), `velocity` (peaks in cosine distance between consecutive token states, so the geometry sets the boundaries), or `hybrid`. Token states are mean-pooled per step; the experiment writes a `TraceStore`:
 
 ```text
 <output_dir>/traces/
@@ -182,24 +178,18 @@ Segmentation decides what a "step" is: `delimiter` (newlines; the shipped defaul
     └── <trace_id>.npz         # pooled_steps (n_steps, n_layers, d_model), token_level (n_tokens, n_layers, d_model)
 ```
 
-With the shipped `layers: [-1]` on Qwen3-0.6B, observed 96-token completions produced `token_level (96, 1, 1024)` with three or four pooled steps, depending on the completion and segmentation. These are examples, not guaranteed step counts or complete answers. The layer is post-final-norm. Hydra stores float16; the adapters forward neither `state_dtype` nor `capture_prenorm`. For float32 storage or pre-final-norm capture, use the direct Python inference API (`extract_trace(state_dtype="float32")` for storage; `forward_hidden_states(capture_prenorm=True)` for pre-norm states). Casting saved float16 arrays to float32 cannot repair overflow; the extraction runner rejects nonfinite tensors.
+Know these before measuring anything:
 
-**Hardware:** `manyagents/configs/agent/vllm.yaml` defaults to `dtype: bfloat16` with no fallback, so it assumes Ampere or newer. On V100 or RTX 8000 pass `agent.config.dtype=float16`.
+- **Layer and dtype.** The shipped `layers: [-1]` captures the post-final-norm hidden state, and the Hydra path stores float16. The pre-norm residual stream (`forward_hidden_states(capture_prenorm=True)`) and float32 storage (`extract_trace(state_dtype="float32")`) are direct-Python only; neither adapter forwards `capture_prenorm` or `state_dtype`. Casting saved float16 back to float32 cannot repair overflow, and the runner rejects nonfinite tensors.
+- **No answer judge ships.** Every trace has `success=None` and `judge="none"`; the summary counts them as `unjudged` until an external judge fills them in. `traces_failed` counts extraction and persistence failures.
+- **Step counts.** Hidden-state traces with fewer than two steps are rejected before the store (velocity needs two, curvature three). Longer answers may need `agent.config.max_new_tokens=1024` or more.
+- **Hardware.** `agent/vllm.yaml` defaults to `dtype: bfloat16` with no fallback, so it assumes Ampere or newer. On V100 or RTX 8000, `agent.config.dtype=float16` changes the vLLM engine only; the HF replay model still loads in bfloat16 (`inference.get_model`'s default), and no adapter option changes that.
 
-**No answer judge ships in this release.** Every captured trace has `success=None` and `judge="none"`; the extraction summary counts them as `unjudged`, and its `success`/`failure` fields stay at zero unless an external judge fills them in. `traces_failed` counts extraction and persistence failures. Hidden-state traces with fewer than two steps are rejected before the store (velocity needs two, curvature three); longer answers may need `agent.config.max_new_tokens=1024` or more.
-
-<details>
-<summary>below the adapters</summary>
-
-`manyagents.inference` is plain functions with a module-level model cache, usable without Hydra: `get_model`, `get_vllm_engine`, `vllm_generate`, `forward_hidden_states` (with `capture_prenorm=True` for the residual stream before the final norm), `forward_hidden_states_batched` (one padded forward for a panel of sequences), `forward_recurrent_states` (per-recurrence-step states for weight-tied models such as Huginn), the `segment_*` family, and `extract_trace`. The batched and recurrent forwards, `capture_prenorm`, and `state_dtype` controls are not wired into the Hydra adapters.
-
-</details>
-
----
+Below the adapters, `manyagents.inference` is plain functions with a module-level model cache, usable without Hydra: model loading, generation, `forward_hidden_states` (plus batched and recurrent variants), the `segment_*` family, and `extract_trace`. The batched and recurrent forwards, `capture_prenorm`, and `state_dtype` stay outside the Hydra adapters.
 
 ## from traces to geometry
 
-`TraceStore.load_tensors(trace_id)` loads that NPZ into a dictionary of arrays, or returns `None` when tensors are unavailable. Select a captured layer by its position in `layers_captured`, cast to float32, and you have the `(steps, d_model)` array manylatents expects. Use **manylatents directly** for trajectory velocity and curvature:
+`TraceStore.load_tensors(trace_id)` loads that NPZ into a dictionary of arrays, or returns `None` when tensors are unavailable. Select a captured layer by its position in `layers_captured`, cast to float32, and you have the `(steps, d_model)` array manylatents expects. Call **manylatents directly** for trajectory velocity and curvature:
 
 <!-- example:trace-geometry -->
 ```python
@@ -235,58 +225,23 @@ print(r["embeddings"].shape, r["scores"])
 ```
 <!-- /example:trace-geometry -->
 
-The per-trace prints measure raw hidden states. The grouped `compute_metric` calls average each trace's mean and exclude transitions between independent traces. The final `ml_run` measures the **PCA embedding, ungrouped**: its scores include the jumps across concatenated trace boundaries and are not a grouped reasoning-geometry measurement — to measure the embedding with boundaries kept, call `compute_metric` on `r["embeddings"]` with `dataset=_Grouped()`. Aggregate only traces from the same model and captured layer.
+The per-trace prints measure raw hidden states. The grouped `compute_metric` calls average each trace's mean and skip transitions between traces. The final `ml_run` measures the **PCA embedding, ungrouped**, so its scores include the jumps across trace boundaries; to keep them, call `compute_metric` on `r["embeddings"]` with `dataset=_Grouped()`. Aggregate only traces from the same model and captured layer.
 
-**`ManyLatentsAdapter` is not this interface.** Its `run(input_data=...)` accepts 2-D arrays for DR, but `execute_cached` rejects the stored 3-D trace tensor and its cached metric registry discovers YAML-backed metrics only — manylatents 0.1.7 ships no trajectory-metric YAMLs.
+`ManyLatentsAdapter` is the wrong door for this: it serves 2-D arrays for DR, its `execute_cached` rejects the stored 3-D trace tensor, and its cached metric registry discovers YAML-backed metrics only, of which manylatents 0.1.7 ships none for trajectories.
 
----
-
-## [adapters](docs/python-api.md)
-
-> 11 classes, 12 registry keys — API (`claude`, `openai`, `ollama`), local (`hf`, `vllm`), compute (`manylatents`), CLI (`cellforge`, `kosmos`), in-process (`biomni`), and `mock`/`placeholder`
-
-Every adapter takes a config dict and returns an `AdapterResult`. Run one directly:
-
-```python
-import asyncio
-from manyagents.adapters import ADAPTER_REGISTRY
-from manyagents.schemas import ReasoningTrace
-
-adapter = ADAPTER_REGISTRY["hf"]()
-result = asyncio.run(adapter.run({
-    "prompt": "If a train travels 60 km in 1.5 hours, what is its average speed?",
-    "system_prompt": "Solve step by step, one step per line.",
-    "model": "Qwen/Qwen3-0.6B", "max_new_tokens": 96,
-    "build_trace": True, "capture_hidden_states": True, "layers": [-1],
-}, {}))
-if not result["success"]:
-    raise RuntimeError(result["summary"])
-text  = result["output_files"]["raw_response"].read_text()
-trace = ReasoningTrace.from_json(result["output_files"]["trace"].read_text())
-trace.steps, trace.model, trace.task                    # ReasoningStep list, ModelInfo, TaskInfo
-result["output_files"]["hidden_states"]                 # Path to the NPZ
-```
-
-Registration does not mean the dependency is installed; a missing one surfaces as a failed result, not an import error. The full table, result contract, tool-calling loop, and DR workflows are in [docs/python-api.md](docs/python-api.md).
-
----
 ## trusted execution
 
-CellForge and Kosmos run local subprocesses with the caller's environment. Biomni imports `A1` from `biomni.agent` in-process and runs `agent.go` through `asyncio.to_thread`; a thread is not process isolation, and an async timeout does not stop the running thread. None of these are for untrusted task configs.
+CellForge and Kosmos run local subprocesses with the caller's environment; CellForge needs its install directory via `CellForgeAdapter(cellforge_path=...)` or `CELLFORGE_PATH`. Biomni imports `A1` from `biomni.agent` and runs it in-process through `asyncio.to_thread`: a thread gives no isolation, and an async timeout leaves it running. Trusted task configs only.
 
-CellForge needs an explicit install directory via `CellForgeAdapter(cellforge_path=...)` or `CELLFORGE_PATH`; its `main.py` path is bound at construction and task `working_dir` sets the execution directory.
-
-**Timeout is not a reliable termination bound.** Subprocess cleanup kills only the immediate child, descendants can survive, and cleanup itself can wait without a second deadline. Biomni work can keep running and spending after cancellation. Kosmos environment inheritance, `run_subprocess` process-group cleanup, and Biomni cancellation are deferred to 0.3.0; trusted inputs do not prevent hangs or continued spending.
-
----
+**Timeouts are unreliable termination bounds.** Subprocess cleanup kills only the immediate child, descendants can survive, and cleanup itself can wait without a second deadline; Biomni work can keep running and spending after cancellation. Process-group cleanup, Kosmos environment isolation, and Biomni cancellation are deferred to 0.3.0.
 
 ## docs & development
 
-- [Running experiments](docs/running_experiments.md) — local runs, traces, GPU requirements, cluster prerequisites
-- [Config groups](docs/config_groups.md) — Hydra packages and override paths
-- [Design decisions](docs/design_decisions.md) — why schema-on-read, why a direct Python API
-- [Contributing](docs/CONTRIBUTING.md) — development and adapter conventions
-- [Changelog](CHANGELOG.md), [code of conduct](CODE_OF_CONDUCT.md), [security](SECURITY.md), [citation](CITATION.cff)
+- [Running experiments](docs/running_experiments.md): local runs, traces, GPU requirements, cluster prerequisites
+- [Config groups](docs/config_groups.md): Hydra packages and override paths
+- [Python API](docs/python-api.md): adapter table, result contract, tool loop, DR workflows
+- [Design decisions](docs/design_decisions.md): why schema-on-read, why a direct Python API
+- [Contributing](docs/CONTRIBUTING.md), [changelog](CHANGELOG.md), [code of conduct](CODE_OF_CONDUCT.md), [security](SECURITY.md), [citation](CITATION.cff)
 
 ```bash
 uv sync --locked
@@ -295,9 +250,7 @@ uv run --no-sync ruff check manyagents/ tests/ scripts/
 uv sync --locked --extra traces && uv run --no-sync pytest -q
 ```
 
-The `mila_*` cluster configs are site-specific. Only `mila_remote` needs the separately installed Shop launcher; `mila_slurm` and `mila_sweep` use Submitit. W&B logging applies to **evaluation**, enabled with `wandb.enabled=true` and the `wandb` or `full` extra; trace extraction returns before logger creation.
-
----
+The `mila_*` cluster configs are site-specific; only `mila_remote` needs the separately installed Shop launcher. W&B logging covers **evaluation** (`wandb.enabled=true` with the `wandb` or `full` extra); trace extraction returns before the logger is created.
 
 ## citing
 
@@ -313,8 +266,6 @@ If manyagents was useful in your research, a citation goes a long way:
   license   = {MIT}
 }
 ```
-
----
 
 <br><br>
 
