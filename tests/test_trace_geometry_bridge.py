@@ -38,7 +38,9 @@ async def test_adapter_pca_uses_supplied_array_without_dummy_dataset(tmp_path, m
 
 @pytest.mark.requires_manylatents
 @pytest.mark.parametrize("has_usable_traces", [True, False])
-def test_readme_geometry_snippet_runs_on_trace_store(tmp_path, capsys, has_usable_traces):
+def test_readme_geometry_snippet_runs_on_trace_store(
+    tmp_path, capsys, has_usable_traces, monkeypatch, documented_example,
+):
     from manyagents.schemas.reasoning import TraceStore, ReasoningTrace, ReasoningStep
     from manylatents.metrics.trajectory_geometry import compute_cosine_velocity, compute_menger_curvature
 
@@ -56,9 +58,27 @@ def test_readme_geometry_snippet_runs_on_trace_store(tmp_path, capsys, has_usabl
         store.append(ReasoningTrace(trace_id="text_only"))
 
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
-    section = readme.split("## From traces to geometry", 1)[1]
-    snippet = section.split("```python\n", 1)[1].split("```", 1)[0]
+    snippet = documented_example(readme, "trace-geometry", "python")
     snippet = snippet.replace("<output_dir>", str(tmp_path))
+    import manylatents.api
+    import manylatents.metrics
+
+    measured, reductions = [], []
+    compute_metric = manylatents.metrics.compute_metric
+    ml_run = manylatents.api.run
+
+    def record_metric(name, data, **kwargs):
+        value = compute_metric(name, data, **kwargs)
+        measured.append((name, value))
+        return value
+
+    def record_reduction(**kwargs):
+        result = ml_run(**kwargs)
+        reductions.append((kwargs["input_data"], result["embeddings"]))
+        return result
+
+    monkeypatch.setattr(manylatents.metrics, "compute_metric", record_metric)
+    monkeypatch.setattr(manylatents.api, "run", record_reduction)
     namespace = {}
     if not has_usable_traces:
         with pytest.raises(SystemExit, match="No traces with at least three"):
@@ -68,8 +88,10 @@ def test_readme_geometry_snippet_runs_on_trace_store(tmp_path, capsys, has_usabl
     # Grouped reductions exclude transitions between independent traces.
     expected_velocity = np.mean([np.mean(compute_cosine_velocity(a)) for a in arrays])
     expected_curvature = np.mean([np.mean(compute_menger_curvature(a)) for a in arrays])
-    compute = namespace["compute_metric"]
     for name, expected in [("trajectory_velocity", expected_velocity), ("trajectory_curvature", expected_curvature)]:
-        assert compute(name, namespace["X"], dataset=namespace["_Grouped"]()) == pytest.approx(expected)
-    assert namespace["r"]["embeddings"].shape == (9, 2)
+        assert (name, pytest.approx(expected)) in measured
+    assert len(reductions) == 1
+    data, embedding = reductions[0]
+    np.testing.assert_array_equal(data, np.concatenate(arrays))
+    assert embedding.shape == (9, 2)
     assert "trace_0" in capsys.readouterr().out

@@ -50,6 +50,17 @@ redefined. Extraction changes can nevertheless alter Jaccard and clustering
 rates, so those also require re-extraction for comparisons across versions.
 
 
+### Documentation and executable examples
+
+The README now leads with “test the recommendation, measure the trace” and
+states that evaluation and GSM8K trace extraction are separate workflows. It
+corrects capture/replay, layer normalization, direct-Python-only controls,
+storage, logging, and cluster claims. Developer docs describe
+`generate_with_hooks` as unwired; it is retained for a separate compatibility
+review. Executable examples now use stable markers and fenced-block extraction,
+including shell continuations; geometry checks assert real outputs without
+incidental example variable names.
+
 ## 0.1.1
 
 **0.1.1 is not a drop-in upgrade from 0.1.0.** The version remains 0.1.1 deliberately; the patch version does not imply API, result-schema, or experimental comparability. Review these migrations before upgrading custom adapters, readers, and stored trajectories.

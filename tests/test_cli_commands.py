@@ -97,13 +97,9 @@ def test_bare_cli_lists_available_experiments(cli, tmp_path):
 
 
 @pytest.mark.parametrize("document", ["README.md", "CLAUDE.md"])
-def test_documented_sweep_executes_all_jobs(document, cli, tmp_path):
-    commands = [
-        line.strip() for line in (ROOT / document).read_text().splitlines()
-        if line.startswith("manyagents --multirun ")
-    ]
-    assert len(commands) == 1, "Keep one runnable canonical sweep in each document"
-    completed, calls = cli(commands[0])
+def test_documented_sweep_executes_all_jobs(document, cli, tmp_path, documented_example):
+    command = documented_example((ROOT / document).read_text(), "evaluation-sweep", "bash")
+    completed, calls = cli(command)
     assert len(completed) == 3
     assert len(calls) == 12
     for result, agent in zip(completed, ["claude", "openai", "local_llm"], strict=True):

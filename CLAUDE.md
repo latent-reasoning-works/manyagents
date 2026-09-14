@@ -32,10 +32,15 @@ manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 
 # Extract reasoning traces
 manyagents experiment=trace_extraction agent=claude agent.config.capture_hidden_states=false
+```
 
-# Multirun sweep
+<!-- example:evaluation-sweep -->
+```bash
 manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
+```
+<!-- /example:evaluation-sweep -->
 
+```bash
 # SLURM submission
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]' cluster=mila_remote resources=api
 ```
@@ -125,7 +130,9 @@ Claude and Biomni default to `claude-opus-5`; OpenAI retains the supported `gpt-
 
 Get an adapter by name via the registry dict: `from manyagents.adapters import ADAPTER_REGISTRY; ADAPTER_REGISTRY["claude"]()`.
 
-**Ollama limitation:** `OllamaAdapter` is for cheap laptop generation (prompt/orchestration iteration, no GPU). Ollama serves quantized GGUF behind an HTTP API and exposes no hidden states, so `capture_hidden_states`/`build_trace` do not work on this path — and bolting an HF replay onto it would reintroduce the model-loading cost ollama avoids, plus quantization/tokenizer mismatch confounds. For reasoning traces use `vllm` (bulk, cluster) or `hf` (exact layer hooks via manylatents `ActivationExtractor`).
+**Ollama limitation:** `OllamaAdapter` is for cheap laptop generation (prompt/orchestration iteration, no GPU). Ollama serves quantized GGUF behind an HTTP API and exposes no hidden states, so `capture_hidden_states`/`build_trace` do not work on this path — and bolting an HF replay onto it would reintroduce the model-loading cost ollama avoids, plus quantization/tokenizer mismatch confounds. For reasoning traces use `vllm` (bulk, cluster) or `hf` (`HFAdapter → extract_trace → generate_with_hidden_states → generate(output_hidden_states=True)`). HF captures the last position per decode step. The shipped Qwen `layers: [-1]` is post-final-norm; the adapters do not forward `capture_prenorm`.
+
+`inference.generate_with_hooks` uses manylatents `ActivationExtractor` but is **unwired**: no shipped adapter or workflow calls it. Keep it documented as an unused helper pending a separate compatibility review, rather than describing it as the HF trace path.
 
 ## Adding a New Adapter
 

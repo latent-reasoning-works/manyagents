@@ -107,7 +107,13 @@ def test_undefined_metrics_in_json_console_and_markdown(tmp_path, capsys):
     _save_results(result, tmp_path, "undefined")
     saved = json.loads((tmp_path / "results.json").read_text())
     assert saved["metrics"]["failed"]["ground_truth_match_rate"] is None
-    assert (tmp_path / "summary.md").read_text().count("n/a") == 3
+    summary = (tmp_path / "summary.md").read_text()
+    assert summary.count("n/a") == 3
+    assert "all successful prompt pairs" in summary
+    assert "0.25" in summary and "36 pairs" in summary
+    assert "within a geometry can lower" in summary
+    assert "no extracted failure indicator" in summary
+    assert "geometry-aware recommendations" not in summary
     _print_summary(result["metrics"])
     console = capsys.readouterr().out
     assert console.count("n/a") == 3
