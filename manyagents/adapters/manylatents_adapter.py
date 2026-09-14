@@ -311,10 +311,10 @@ class ManyLatentsAdapter(AgentAdapter):
                                     if callback_name == 'plot_embeddings':
                                         # Use step info for unique directories and names
                                         if step_idx is not None and step_name is not None:
-                                            save_dir = tempfile.mkdtemp(prefix=f"geomancer_step_{step_idx}_{step_name}_")
+                                            save_dir = tempfile.mkdtemp(prefix=f"manyagents_step_{step_idx}_{step_name}_")
                                             exp_name = f"step_{step_idx}_{step_name}"
                                         else:
-                                            save_dir = tempfile.mkdtemp(prefix="geomancer_callbacks_")
+                                            save_dir = tempfile.mkdtemp(prefix="manyagents_callbacks_")
                                             exp_name = "callback_plot"
 
                                         # Override interpolated fields in OmegaConf object before resolution
