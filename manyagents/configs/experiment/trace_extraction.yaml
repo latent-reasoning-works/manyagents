@@ -20,6 +20,7 @@ agent:
     capture_hidden_states: true
     layers: [-1]
     step_delimiter: "\n"
-    segmentation: tags
+    # Newlines remain steps even if generation ends before </think>.
+    segmentation: delimiter
     temperature: 0.7
     max_new_tokens: 512

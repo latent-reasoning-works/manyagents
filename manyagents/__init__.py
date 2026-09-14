@@ -5,7 +5,7 @@ Tests whether LLMs can reason about data geometry by dispatching
 prompts to multiple agents (Claude, GPT-4, local LLMs) and evaluating
 their responses against ground truth methods.
 
-For pipeline orchestration, use Geomancy instead.
+Downstream consumers can compose adapters into their own workflows.
 
 ## Core Design Principles
 
@@ -24,24 +24,5 @@ For config merging and building, see `manyagents.config_utils`:
 - `load_manylatents_experiment()`: Load experiment configs with overrides
 - `deep_merge()`: Recursive dict merging
 - `build_hydra_overrides()`: Convert dicts to Hydra override strings
-- `build_manylatents_config_with_hydra_zen()`: Experimental hydra-zen builder
-
-### Hydra-Zen: When and Why?
-
-**Use hydra-zen for**: Loading known schemas (manylatents experiments)
-**Don't use for**: General config building (defeats flexibility)
-
-**What hydra-zen buys us**:
-- Type hints from function signatures
-- Validation at build time
-- Structured merging with interpolation
-
-**What we give up**:
-- Flexibility to inject arbitrary fields
-- Simplicity (more complex API)
-- Agent autonomy (LLMs need to learn hydra-zen)
-
-**Current approach**: Use plain Hydra compose + OmegaConf.merge for experiment
-loading. Keep hydra-zen as experimental prototype for potential future use.
 """
 __version__ = "0.1.1"

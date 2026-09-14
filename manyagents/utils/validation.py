@@ -106,12 +106,6 @@ async def apply_filter_function(
     Returns:
         DataFrame with flag columns added
         
-    Example:
-        validated = await apply_filter_function(
-            data=df,
-            filter_function="manyagents.examples.drug_discovery.validation:validate_safety",
-            filter_params={"checks": ["toxicity", "ddi"], "strict": True}
-        )
     """
     if not filter_function:
         raise ValueError("filter_function is required; choose an explicit validator")

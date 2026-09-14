@@ -1,0 +1,29 @@
+name: Unlocked dependency compatibility
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * *'
+  pull_request:
+    paths:
+      - pyproject.toml
+      - .github/workflows/compatibility.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test-unlocked:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv
+      - name: Install from package metadata without the lock
+        run: uv pip install '.[traces,dev]'
+      - run: .venv/bin/python -m pytest -q
+      - run: .venv/bin/ruff check manyagents/ tests/ scripts/

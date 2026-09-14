@@ -124,9 +124,9 @@ def _print_summary(metrics: Dict[str, Dict[str, float | None]]) -> None:
     print("=" * 60)
     for agent_name, m in metrics.items():
         print(f"\n{agent_name}:")
-        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')}")
-        print(f"  Ground Truth Match: {format_metric(m.get('ground_truth_match_rate'), '.1%')}")
-        print(f"  Clustering-for-All: {format_metric(m.get('clustering_for_all_rate'), '.1%')}")
+        print(f"  Jaccard Similarity: {format_metric(m.get('jaccard_similarity_across_prompts'), '.2f')} (lower is better)")
+        print(f"  Ground Truth Match: {format_metric(m.get('ground_truth_match_rate'), '.1%')} (higher is better)")
+        print(f"  Clustering-for-All: {format_metric(m.get('clustering_for_all_rate'), '.1%')} (lower is better)")
 
 
 # ============================================================================
@@ -218,6 +218,12 @@ async def _run_trace_extraction(cfg: DictConfig) -> Dict[str, Any]:
                         hs = None
                 if task_config.get("capture_hidden_states", False) and hs is None:
                     raise ValueError("capture_hidden_states requested but trace has no tensors")
+
+                if hs is not None and len(trace.steps) < 2:
+                    raise ValueError(
+                        "Hidden-state geometry requires at least two steps; "
+                        "try segmentation=delimiter or increase max_new_tokens"
+                    )
 
                 store.append(trace, hidden_states=hs)
                 summary["total_traces"] += 1

@@ -4,7 +4,7 @@
 # Usage:
 #   manyagents experiment=invariance_golden
 #   manyagents experiment=invariance_golden wandb.enabled=true
-#   manyagents experiment=invariance_golden agents.local_llm.config.model=llama-3.3-70b
+#   manyagents experiment=invariance_golden agents.local_llm.agent.config.model=Qwen/Qwen3-1.7B
 
 name: invariance_golden_test
 
@@ -16,7 +16,7 @@ wandb:
 
 defaults:
   - /prompts: trajectory
-  - /agent@agents.local_llm: local_llm
+  - /agent@agents.local_llm: hf
   - _self_
 
 # System prompt for all agents

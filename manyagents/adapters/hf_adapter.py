@@ -41,6 +41,18 @@ class HFAdapter(AgentAdapter):
         input_files: Dict[str, Path],
         input_data: Optional[Any] = None,
     ) -> AdapterResult:
+        """Generate text, optionally capturing a trace and hidden states.
+
+        task_config requires prompt; model, system_prompt, temperature, and
+        max_new_tokens override generation defaults. build_trace or
+        capture_hidden_states enables HF hidden-state extraction (traces extra).
+        layers and segmentation control capture. input_files and input_data
+        are reserved and unused.
+
+        Returns an AdapterResult with success, summary, output_files, and
+        metadata. Outputs contain raw_response and, when captured, trace and
+        hidden_states paths. Errors return success=False with diagnostic text.
+        """
         log.info(f"HFAdapter executing with config: {task_config}")
 
         if "prompt" not in task_config:

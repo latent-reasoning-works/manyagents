@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: Ruff correctness checks
+        entry: uv run --no-sync ruff check
+        language: system
+        types: [python]
+        files: ^(manyagents|tests|scripts)/

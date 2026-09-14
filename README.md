@@ -10,13 +10,14 @@
     coordinate, dispatch, aggregate
 </pre>
 
+[![CI](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml/badge.svg)](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-8B5CF6.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11–3.12-8B5CF6.svg)](https://www.python.org)
 [![uv](https://img.shields.io/badge/pkg-uv-8B5CF6.svg)](https://docs.astral.sh/uv/)
 
 </div>
 
-Multi-agent evaluation and reasoning trace extraction for scientific workflows. Dispatch prompts through a shared adapter interface, extract method recommendations, and compare them against expected data geometry.
+[manyagents](https://github.com/latent-reasoning-works/manyagents) provides multi-agent evaluation and reasoning trace extraction for scientific workflows. Dispatch prompts through a shared adapter interface, extract method recommendations, and compare them against expected data geometry.
 
 **Upgrading:** 0.1.1 is not a drop-in upgrade from 0.1.0. Read the [release notes and migration guide](CHANGELOG.md) for adapter results, exit semantics, model pinning, and legacy GVector data.
 
@@ -51,10 +52,12 @@ manyagents experiment=geometric_reasoning 'active_agents=[mock]'
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 
 # Three separate jobs; retain each job's results
-manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 ```
 
-The sweep uses names defined by `invariance_full`: `claude`, `openai`, and `local_llm` (it also defines `biomni`). It loads HF directly into `agents.local_llm` because the legacy `local_llm` alias's nested defaults do not retain the HF config in that package. The local job needs an accessible model; outside Mila, add `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B`. The output override saves each job under Hydra's numbered multirun directory. `--cfg job` only displays configuration; it cannot be combined with `--multirun` or verify execution.
+The mock deliberately answers every prompt identically: expect Jaccard 1.0 and clustering-for-all 100%. That is the invariance failure this evaluation is designed to detect.
+
+The sweep uses names defined by `invariance_full`: `claude`, `openai`, and `local_llm` (it also defines `biomni`). The local job uses HF with `Qwen/Qwen3-0.6B` by default; select another accessible model with `agents.local_llm.agent.config.model=<Hub-ID-or-path>`. The output override saves each job under Hydra's numbered multirun directory. `--cfg job` only displays configuration; it cannot be combined with `--multirun` or verify execution.
 
 Bare `manyagents` exits with a command hint and the available experiment names. Successful evaluations save `results.json` and `summary.md` under the configured `output_dir`. Zero successful evaluations exit nonzero; partial failures remain recorded alongside successes.
 
@@ -134,6 +137,54 @@ manyagents experiment=trace_extraction agent=vllm
 
 vLLM trace replay was verified finite on an L40S: float16 `token_level` arrays have shape `(n_tokens, 1, d_model)` and `pooled_steps` arrays have shape `(n_steps, 1, d_model)` with the default single captured layer. The stored replay dtype is distinct from the vLLM engine's generation dtype.
 
+## From traces to geometry
+
+After the capture command above, replace `<output_dir>` with that run's output directory. `TraceStore.load_tensors(trace_id)` reads `tensors/{trace_id}.npz`. The stored `pooled_steps` array is **(steps, captured layers, hidden dimension)**; select a layer by its position in `layers_captured` and cast to float32 to obtain the **(steps, hidden dimension)** input expected by manyLatents.
+
+Use **manyLatents directly** for trajectory velocity and curvature, as below. `ManyLatentsAdapter.run(input_data=...)` supports 2-D arrays for DR without a dummy `data` field, but its cached `setup_metrics` registry discovers YAML-backed metrics. manylatents 0.1.7 supplies no trajectory metric YAMLs, and `execute_cached` cannot consume a 3-D trace tensor. It is not the trace-to-trajectory-metrics interface.
+
+```python
+import numpy as np
+from manyagents.schemas import TraceStore
+from manylatents.metrics import compute_metric
+from manylatents.metrics.trajectory_geometry import compute_cosine_velocity, compute_menger_curvature
+from manylatents.api import run as ml_run
+
+store = TraceStore("<output_dir>/traces", mode="r")
+per_trace, ids = [], []
+for trace in store:
+    tensors = store.load_tensors(trace.trace_id)           # tensors/{trace_id}.npz
+    if tensors is None or not trace.steps:                # text-only traces
+        continue
+    layers = trace.steps[0].layers_captured               # e.g. [28] -> axis-1 index
+    steps = tensors["pooled_steps"][:, layers.index(layers[-1]), :].astype(np.float32)
+    if len(steps) < 3:                                    # velocity needs 2, curvature needs 3
+        continue
+    print(trace.trace_id, compute_cosine_velocity(steps), compute_menger_curvature(steps))
+    per_trace.append(steps)
+    ids += [trace.trace_id] * len(steps)
+
+if not per_trace:
+    raise SystemExit("No traces with at least three steps and tensors; capture longer responses.")
+X, ids = np.concatenate(per_trace), np.array(ids)
+class _Grouped:
+    step_trace_ids = ids                                  # preserves trace boundaries
+print(compute_metric("trajectory_velocity", X, dataset=_Grouped()))
+print(compute_metric("trajectory_curvature", X, dataset=_Grouped()))
+r = ml_run(input_data=X, algorithm="pca", metrics=["trajectory_velocity", "trajectory_curvature"])
+print(r["embeddings"].shape, r["scores"])
+```
+
+Use traces from the **same model and captured layer** for aggregation. The first outputs measure raw hidden states per trace. Grouped `compute_metric` averages each trace's mean, excluding transitions between independent traces. The final `ml_run` example instead measures the **PCA embedding, ungrouped**: its scores include transitions across concatenated trace boundaries and are not a grouped reasoning-geometry measurement. To measure the embedding with boundaries preserved, call `compute_metric` on `r["embeddings"]` with `dataset=_Grouped()`.
+
+The shipped capture experiment uses newline (`delimiter`) segmentation so an unclosed `<think>` does not collapse a multiline response into one step. Hidden-state traces with fewer than two steps are counted in `traces_failed` and excluded from the store; two-step traces permit velocity but not curvature. Text-only traces may still have one step. Longer responses may require `agent.config.max_new_tokens=1024` or more; segmentation and a persisted trace do not establish answer completeness or correctness.
+
+**This release has no answer judge.** Captured traces have `success=None` and `judge="none"`; their summary outcome is always `unjudged`. The summary's `success` and `failure` fields remain zero unless an external producer supplies judged outcomes. `traces_failed` counts extraction/persistence failures separately.
+
+## Tool-calling loop
+
+`manyagents.agent_loop.run_agent_loop` is an async entry point for adapters exposing `chat()` (OpenAI, Ollama, and Claude). Pass a prompt and optional `manyagents.tools.Tool` objects, each pairing a JSON Schema with a trusted sync or async callable. The returned `AgentResult` contains `answer`, `messages`, `steps`, `stopped` (`end_turn` or `max_steps`), and executed `tool_calls`. Pass `messages` back as `history` to continue; `max_steps` bounds model turns. Tool bodies run with the caller's permissions.
+
 ## Trusted execution
 
 CellForge and Kosmos execute local subprocesses with the caller's environment. Biomni imports `A1` from `biomni.agent` in-process and runs `agent.go` through `asyncio.to_thread`; a thread is not process isolation, and an async timeout does not terminate the running thread. These integrations execute local code with the caller's permissions and are not for untrusted task configs.
@@ -148,11 +199,12 @@ CellForge requires an explicit installation directory via `CellForgeAdapter(cell
 - [Config Groups](docs/config_groups.md): Hydra packages and overrides
 - [Design Decisions](docs/design_decisions.md): architecture history
 - [Contributing](docs/CONTRIBUTING.md): development and adapter conventions
+- [Code of conduct](CODE_OF_CONDUCT.md), [security reporting](SECURITY.md), and [citation](CITATION.cff)
 
 ```bash
 uv sync --locked
 uv run --no-sync pytest -q
-uv run --no-sync ruff check manyagents/ tests/
+uv run --no-sync ruff check manyagents/ tests/ scripts/
 uv sync --locked --extra traces
 uv run --no-sync pytest -q
 ```

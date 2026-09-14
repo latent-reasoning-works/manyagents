@@ -193,7 +193,9 @@ def build_hydra_overrides(config_dict: Dict[str, Any], prefix: str = "") -> list
 # CONFIG VALIDATION
 # ============================================================================
 
-def validate_manylatents_config(config: Dict[str, Any]) -> Dict[str, Any]:
+def validate_manylatents_config(
+    config: Dict[str, Any], *, input_data: Optional[Any] = None,
+) -> Dict[str, Any]:
     """
     Validate that a config dict has the minimum structure for manylatents.
 
@@ -201,6 +203,8 @@ def validate_manylatents_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
     Args:
         config: Configuration dictionary
+        input_data: Supplied array; satisfies the data requirement for chaining.
+            Array shape and contents are validated by manylatents.
 
     Returns:
         The validated config
@@ -212,13 +216,13 @@ def validate_manylatents_config(config: Dict[str, Any]) -> Dict[str, Any]:
         config = {"data": "swissroll"}  # Missing algorithms!
         validate_manylatents_config(config)  # Raises ValueError
     """
-    # Check for data OR pipeline
-    has_data = "data" in config
+    # Do not truth-test arrays: numpy arrays have no scalar truth value.
+    has_data = "data" in config or input_data is not None
     has_pipeline = "pipeline" in config and config["pipeline"]
 
     if not (has_data or has_pipeline):
         raise ValueError(
-            "manylatents config must have either 'data' or 'pipeline' field"
+            "manylatents config must have either 'data' or 'pipeline' field, or input_data"
         )
 
     # Check for algorithms OR pipeline
@@ -253,7 +257,8 @@ def build_manylatents_config_with_hydra_zen(
     EXPERIMENTAL: Build manylatents config using hydra-zen.
 
     This shows what hydra-zen would look like for config generation.
-    Currently not used - kept as reference for potential future use.
+    Unsupported prototype, not used by the public execution path.
+    Requires a separate hydra-zen installation; it is not a direct dependency.
 
     Args:
         algorithm: Algorithm name (e.g., "pca")

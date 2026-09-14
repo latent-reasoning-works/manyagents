@@ -7,15 +7,17 @@ Use Python **3.11–3.12** and uv. From a source checkout:
 ```bash
 uv sync --locked
 uv run --no-sync pytest -q
-uv run --no-sync ruff check manyagents/ tests/
+uv run --no-sync ruff check manyagents/ tests/ scripts/
 ```
 
-The default development group includes pytest and ruff. `uv sync --extra dev` also installs pre-commit. Optional integration tests require their extras:
+The default development group includes pytest and ruff. `uv sync --extra dev` also installs pre-commit. Enable the shipped Ruff hook with `uv run --no-sync pre-commit install` and check tracked Python files with `uv run --no-sync pre-commit run --all-files`. Optional integration tests require their extras:
 
 ```bash
 uv sync --locked --extra traces
 uv run --no-sync pytest -q
 ```
+
+The `traces` extra requires `manylatents>=0.1.7,<0.2`, and the lock pins 0.1.7. The minimum matches the tested trace API; the upper bound keeps installs on the 0.1 release line. Locked CI checks reproducible installs, while the daily unlocked compatibility workflow checks newly published dependencies within the declared bounds.
 
 Core-only tests skip individual cases requiring manylatents. Keep dependency-free tests runnable in core; use the `requires_manylatents` marker on tests that actually need it. vLLM is a separate GPU extra and is not included in `traces` or `full`. See [Running Experiments](running_experiments.md) for hardware requirements.
 

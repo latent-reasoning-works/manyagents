@@ -34,13 +34,13 @@ manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 manyagents experiment=trace_extraction agent=claude agent.config.capture_hidden_states=false
 
 # Multirun sweep
-manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 
 # SLURM submission
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]' cluster=mila_remote resources=api
 ```
 
-The sweep loads HF directly into `agents.local_llm` to avoid the legacy alias losing its config under Hydra packaging. Outside Mila, add `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B`. Its output override retains every job’s results. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`, not `hf` or `mock`. `--cfg job` only inspects config and is incompatible with `--multirun`. Bare `manyagents` lists available experiments and exits nonzero. The cluster command requires a separately installed Shop launcher and site access.
+The shipped sweep loads HF into `agents.local_llm` with a portable `Qwen/Qwen3-0.6B` default. Override `agents.local_llm.agent.config.model` to select another accessible model. Its output override retains every job’s results. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`, not `hf` or `mock`. `--cfg job` only inspects config and is incompatible with `--multirun`. Bare `manyagents` lists available experiments and exits nonzero. The cluster command requires a separately installed Shop launcher and site access.
 
 The following manylatents example requires `--extra traces` and an embedding matrix `X`:
 
@@ -189,5 +189,5 @@ uv run --no-sync pytest manyagents/adapters/test_adapters.py -v  # adapter tests
 
 ```bash
 uv run --no-sync pytest -x -q
-uv run --no-sync ruff check manyagents/ tests/
+uv run --no-sync ruff check manyagents/ tests/ scripts/
 ```

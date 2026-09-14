@@ -65,12 +65,14 @@ class ModelInfo:
     generation_config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record to a JSON-compatible dictionary."""
         d = asdict(self)
         d["backend"] = self.backend.value
         return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ModelInfo:
+        """Reconstruct this record from its serialized dictionary."""
         return cls(**{**d, "backend": ModelBackend(d["backend"])})
 
 
@@ -90,10 +92,12 @@ class TaskInfo:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record to a JSON-compatible dictionary."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> TaskInfo:
+        """Reconstruct this record from its serialized dictionary."""
         return cls(**d)
 
 
@@ -115,12 +119,14 @@ class ReasoningStep:
     layers_captured: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record to a JSON-compatible dictionary."""
         d = asdict(self)
         d["kind"] = self.kind.value
         return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ReasoningStep:
+        """Reconstruct this record from its serialized dictionary."""
         return cls(**{**d, "kind": StepKind(d["kind"])})
 
 
@@ -165,6 +171,7 @@ class ReasoningTrace:
     has_tensors: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize this record to a JSON-compatible dictionary."""
         return {
             "trace_id": self.trace_id,
             "model": self.model.to_dict(),
@@ -185,10 +192,12 @@ class ReasoningTrace:
         }
 
     def to_json(self) -> str:
+        """Serialize the trace and nested records as a single JSON line."""
         return json.dumps(self.to_dict(), ensure_ascii=False)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ReasoningTrace:
+        """Reconstruct this record from its serialized dictionary."""
         return cls(
             trace_id=d["trace_id"],
             model=ModelInfo.from_dict(d["model"]),
@@ -210,6 +219,7 @@ class ReasoningTrace:
 
     @classmethod
     def from_json(cls, line: str) -> ReasoningTrace:
+        """Reconstruct a trace from one JSON line; malformed input raises."""
         return cls.from_dict(json.loads(line))
 
 
@@ -371,6 +381,7 @@ class TraceStore:
             return None
 
     def close(self) -> None:
+        """Close the write handle, if open; safe to call more than once."""
         if self._handle and not self._handle.closed:
             self._handle.close()
 

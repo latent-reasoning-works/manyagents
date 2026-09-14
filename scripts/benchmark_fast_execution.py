@@ -13,7 +13,6 @@ Expected results:
 import asyncio
 import time
 import numpy as np
-from pathlib import Path
 
 from manyagents.adapters.manylatents_adapter import ManyLatentsAdapter
 
@@ -32,10 +31,9 @@ async def benchmark_normal_path(n_trials: int = 5):
         start = time.perf_counter()
 
         # Normal path using adapter.run()
-        result = await adapter.run(
+        await adapter.run(
             task_config={
                 'algorithm': 'PCA',
-                'data': 'swissroll',  # Will be overridden by input_data
                 'n_components': 2,
             },
             input_files={},
@@ -85,7 +83,7 @@ async def benchmark_fast_path(n_trials: int = 50):
         start = time.perf_counter()
 
         # Fast path using execute_cached()
-        result = await adapter.execute_cached(
+        await adapter.execute_cached(
             algorithm='PCA',
             params={'n_components': 2},
             data=data

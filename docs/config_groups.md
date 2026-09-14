@@ -25,7 +25,7 @@ For example, `geometric_reasoning.yaml` contains:
 
 ```yaml
 defaults:
-  - /agent@agents.local_llm: local_llm
+  - /agent@agents.local_llm: hf
   - /agent@agents.claude: claude
   - /agent@agents.openai: openai
   - /agent@agents.mock: mock
@@ -56,12 +56,12 @@ An evaluation experiment needs `name`, `prompts`, `system_prompt`, `active_agent
 ## Sweeping existing names
 
 ```bash
-manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 ```
 
 Each comma-separated list is a separate job. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`; neither `hf` nor `mock` is an active-agent name there. `agent=claude,openai,hf` fails because this experiment loads named packages, not the plain `agent` group.
 
-The legacy `local_llm` config includes `hf` through nested defaults with a global package directive. Under `@agents.local_llm`, its HF settings land outside that named entry. Use `agent@agents.local_llm=hf` to load HF directly into the existing name. This changes only composition for the command; no config-group restructuring is required. Outside Mila, add `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B`.
+The shipped experiments load `hf` into the `local_llm` name with a portable `Qwen/Qwen3-0.6B` default. The legacy `agent=local_llm` alias also preserves HF settings when repackaged; prefer `hf` for new configs.
 
 `output_dir=${hydra:runtime.output_dir}` stores results under each numbered Hydra job directory, avoiding collisions in the experiment's timestamp-based output directory. Quote list and interpolation overrides to protect them from the shell.
 

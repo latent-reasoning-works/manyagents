@@ -1,6 +1,7 @@
 # @package _global_
 # Baseline sweep: adapters × datasets × algorithms × dimensions
-# Jobs: 3×3×4×3 = 108 (or 36 with single adapter)
+# Default: one adapter × 3 datasets × 4 algorithms × 3 dimensions = 36 jobs
+# Usage: manyagents experiment=baseline_sweep
 name: baseline_sweep
 
 # Defaults (overridden by sweeper)
@@ -12,7 +13,7 @@ n_components: 2
 defaults:
   - /agent@agents.claude: claude
   - /agent@agents.openai: openai
-  - /agent@agents.local_llm: local_llm
+  - /agent@agents.local_llm: hf
   - _self_
 
 hydra:
@@ -30,7 +31,7 @@ hydra:
     subdir: ${adapter}_${dataset}_${algorithm_name}_${n_components}
 
 wandb:
-  enabled: true
+  enabled: false  # Opt in with wandb.enabled=true
   project: manyagents_baseline
   group: sweep_${now:%Y%m%d}
   tags: [baseline, sweep, "${adapter}", "${dataset}", "${algorithm_name}"]

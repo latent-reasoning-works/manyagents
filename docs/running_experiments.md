@@ -14,8 +14,8 @@ manyagents experiment=geometric_reasoning 'active_agents=[mock]'
 # Real API evaluation: export ANTHROPIC_API_KEY and OPENAI_API_KEY first
 manyagents experiment=geometric_reasoning 'active_agents=[claude,openai]'
 
-# Local HF generation, loading directly into the named experiment package
-manyagents experiment=geometric_reasoning 'active_agents=[local_llm]' agent@agents.local_llm=hf agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B
+# Local HF generation with the shipped default model
+manyagents experiment=geometric_reasoning 'active_agents=[local_llm]' agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B
 ```
 
 Each active agent runs every prompt. The runner reads response text, extracts method recommendations, checks expected methods, and computes aggregate scores. Ground-truth match rate up is good; cross-prompt Jaccard and clustering-for-all up are bad in this geometry evaluation. Undefined measurements appear as `null` in JSON and `n/a` in summaries. Zero successful evaluations exit nonzero; partial failures remain in the results.
@@ -25,10 +25,10 @@ Bare `manyagents` exits with an experiment-selection hint and all available expe
 ## Sweeps
 
 ```bash
-manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' agent@agents.local_llm=hf 'output_dir=${hydra:runtime.output_dir}'
+manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai],[local_llm]' 'output_dir=${hydra:runtime.output_dir}'
 ```
 
-This launches three jobs, each evaluating four prompts with one agent. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`; it does not define `hf` or `mock`. Sweep `active_agents`, not `agent`. The named package override loads HF directly for `local_llm`, avoiding the legacy alias's nested-default packaging issue. Outside Mila, append `agents.local_llm.agent.config.model=Qwen/Qwen3-0.6B` (or another accessible model).
+This launches three jobs, each evaluating four prompts with one agent. `invariance_full` defines `claude`, `openai`, `local_llm`, and `biomni`; it does not define `hf` or `mock`. Sweep `active_agents`, not `agent`. The local job defaults to `Qwen/Qwen3-0.6B`; override `agents.local_llm.agent.config.model` to select another accessible model.
 
 The output override keeps separate `results.json` and `summary.md` files in Hydra's numbered job directories. Without it, the experiment's second-resolution output name can collide across fast jobs.
 
@@ -78,6 +78,12 @@ Trace extraction instead writes:
 ```
 
 `TraceStore` appends one JSON record per trace. Counts cover only traces newly persisted by the current run. Zero persisted traces exit nonzero; requested hidden states must be present as nonempty, finite float arrays.
+
+## From traces to geometry
+
+Follow the [runnable README bridge](../README.md#from-traces-to-geometry): load each NPZ through `TraceStore`, select the captured layer, cast to float32, then call manyLatents directly. Group by `step_trace_ids` to avoid introducing transitions between separate traces. `ManyLatentsAdapter.execute_cached` does not accept the stored 3-D tensor or expose trajectory velocity/curvature through its YAML metric registry.
+
+The default segmentation is `delimiter` (newlines). Captured traces need at least two steps to enter the store; curvature needs three. Short captured traces count as `traces_failed`. This release has no answer judge: generated traces are always `unjudged`, with `success=None` and `judge="none"`. Extraction success does not mean a correct or complete answer.
 
 ## Optional logging and cluster execution
 

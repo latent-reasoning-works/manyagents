@@ -10,6 +10,7 @@ import pytest
 from manyagents import experiment
 from manyagents.adapters import ADAPTER_REGISTRY, MockAdapter
 from manyagents.main import main
+from manyagents.utils.logger import NullLogger
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,18 @@ def cli(monkeypatch, tmp_path):
             calls.append(dict(task_config))
             return await super().run({**task_config, "delay": 0}, input_files)
 
-    for name in ("mock", "claude", "openai", "hf", "local_llm"):
+    class RecordingHF(RecordingMock):
+        async def run(self, task_config, input_files):
+            from manyagents.inference import resolve_model_path
+
+            # Keep the shipped HF configuration contract, without loading weights.
+            assert task_config["max_new_tokens"] > 0
+            resolve_model_path(task_config["model"], task_config["available_models"])
+            return await super().run(task_config, input_files)
+
+    for name in ("hf", "local_llm"):
+        monkeypatch.setitem(ADAPTER_REGISTRY, name, RecordingHF)
+    for name in ("mock", "claude", "openai"):
         monkeypatch.setitem(ADAPTER_REGISTRY, name, RecordingMock)
 
     async def record(cfg):
@@ -41,10 +53,12 @@ def cli(monkeypatch, tmp_path):
         return result
 
     monkeypatch.setattr(experiment, "run_experiment", record)
+    # Never contact W&B, even while testing currently broken opt-in defaults.
+    monkeypatch.setattr(experiment, "ExperimentLogger", lambda **kwargs: NullLogger())
 
     def invoke(command):
         args = shlex.split(command)
-        args += ["wandb.enabled=false"]
+
         if "--multirun" in args:
             args += ["hydra.sweep.dir=sweep"]
         monkeypatch.setattr(sys, "argv", args)
@@ -108,3 +122,28 @@ def test_mock_quickstarts_execute_and_score(selection, prompt_count, match_rate,
     assert len(calls) == prompt_count
     assert_evaluations(completed[0], "mock", prompt_count)
     assert completed[0]["metrics"]["mock"]["ground_truth_match_rate"] == pytest.approx(match_rate)
+
+
+@pytest.mark.parametrize("name,jobs", [
+    ("geometric_reasoning", 1),
+    ("invariance_full", 1),
+    ("invariance_golden", 1),
+    ("invariance_compare_models", 1),
+    ("reasoning_baseline", 1),
+    ("baseline_sweep", 36),
+    ("llm_reasoning_sweep", 4),
+])
+def test_shipped_default_invocation_completes(name, jobs, cli):
+    # No replacement agent group, active_agents, model or W&B overrides.
+    # Hydra's configured MULTIRUN mode is exercised for both shipped sweeps.
+    completed, calls = cli(f"manyagents experiment={name}")
+    assert len(completed) == jobs
+    expected_calls = 0
+    for result in completed:
+        assert set(result["results"]) == set(result["config"]["active_agents"])
+        for responses in result["results"].values():
+            assert set(responses) == set(result["prompts"])
+            assert all(response["success"] for response in responses.values()), responses
+            expected_calls += len(responses)
+        assert all(m["prompts_failed"] == 0 for m in result["metrics"].values())
+    assert len(calls) == expected_calls

@@ -91,12 +91,6 @@ async def load_source(
     Returns:
         DataFrame loaded by the transform function
         
-    Example:
-        config = {
-            "transform_function": "manyagents.examples.drug_discovery.data:fetch_chembl",
-            "params": {"query": "kinase_inhibitors", "limit": 500}
-        }
-        df = await load_source(config)
     """
     transform_path = source_config.get("transform_function")
     params = source_config.get("params", {})

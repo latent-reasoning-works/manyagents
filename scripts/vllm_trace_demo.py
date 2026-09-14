@@ -5,14 +5,14 @@ vLLM generates a reasoning trajectory for Qwen3-0.6B; an HF forward pass over th
 exact token ids vLLM emitted recovers per-step hidden states. Shows that every
 sampling + engine knob is settable, and that the captured ReasoningTrace +
 hidden-state tensors are identical in shape/semantics to the HF backend — so
-downstream geometry (velocity-Gram, curvature in manylatents) consumes them
-unchanged.
+downstream geometry in manylatents selects a captured layer and casts to float32.
+See README.md, "From traces to geometry", for the runnable TraceStore bridge.
 
 This stays inside manyagents' remit (inference + trace capture). Geometry metrics
 and invariance-constrained training live downstream (manylatents / the
 reasoning-geometry analysis scripts).
 
-Run (GPU + `pip install manyagents[vllm]`):
+Run (GPU + `pip install manyagents[traces,vllm]`):
     python scripts/vllm_trace_demo.py --model Qwen/Qwen3-0.6B
 """
 

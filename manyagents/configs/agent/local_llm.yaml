@@ -2,7 +2,8 @@
 # Backward compatibility alias — use agent=hf instead
 
 defaults:
-  - hf
+  - hf@_here_
+  - _self_
 
 # Override name/adapter for backward compat with experiment logs
 agent:
