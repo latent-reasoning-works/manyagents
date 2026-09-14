@@ -42,7 +42,7 @@ not given contrived behavioral tests.
   `docs/adapters_vs_utils.md`, plus references to those examples and the missing
   templates directory. Removed the unfilled future-decision template.
 - Reworded public package help and adapter comments to address downstream callers
-  without private Geomancy/Shop guidance. Optional Shop launcher imports and
+  without private manyRuns/Shop guidance. Optional Shop launcher imports and
   explicitly site-specific configs remain because they implement real optional
   integration behavior.
 - Updated metric-registry documentation to describe in-memory generation,

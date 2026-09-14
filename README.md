@@ -209,6 +209,6 @@ uv sync --locked --extra traces
 uv run --no-sync pytest -q
 ```
 
-[manylatents](https://github.com/latent-reasoning-works/manylatents) supplies optional DR algorithms and geometric metrics. Geomancy and Shop are companion repos, not yet public.
+[manylatents](https://github.com/latent-reasoning-works/manylatents) supplies optional DR algorithms and geometric metrics. manyRuns (the run harness) and Shop (cluster infrastructure) are companion repos, not yet public.
 
 MIT License — see [LICENSE](LICENSE).

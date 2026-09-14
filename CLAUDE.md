@@ -10,7 +10,7 @@ Adapters, orchestration, LLM metrics, reasoning trace capture. Anything that coo
 
 **Do NOT put here:**
 - Geometric metrics or DR algorithms (manyLatents)
-- Reward computation, G-vectors, RL training (Geomancy)
+- Run orchestration, recipe/dataset catalogs, artifact stores (manyRuns)
 - Cluster configs, SLURM launchers (Shop)
 
 ## Install and Hardware
@@ -162,11 +162,11 @@ Get an adapter by name via the registry dict: `from manyagents.adapters import A
 
 ## Ecosystem Boundary Rules
 
-- **Never import from geomancy.** manyAgents sits below geomancy in the dependency graph.
+- **Never import from manyRuns.** manyAgents sits below manyRuns in the dependency graph — manyRuns imports `manyagents.adapters` and `manyagents.agent_loop` through its `agents` extra, so the arrow never points back.
 - **manyLatents is optional.** Guard with `try/except ImportError`. The adapter handles this.
 - **GlobalHydra clearing** is handled inside `manylatents.api.run()` — do NOT clear it in adapters.
 - **`compute_metric()` returns `float`** since March 2026. Use `compute_metric_detailed()` for per-sample arrays.
-- Companion-repo boundary checks require a separate Geomancy checkout; it is not yet public.
+- Companion-repo boundary checks require a separate manyRuns checkout; it is not yet public.
 
 ## Gotchas
 
