@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 import re
 import subprocess
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_TOKEN_HASHES = {
@@ -19,7 +20,14 @@ def test_public_tree_has_no_retired_identifiers():
         ).decode().split("\0")
         paths = [ROOT / name for name in names if name]
     else:
-        paths = list(ROOT.rglob("*"))
+        # An extracted sdist can contain a local venv or build output after use.
+        # Scan the shipped roots, not downloaded third-party dependencies.
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        includes = project['tool']['hatch']['build']['targets']['sdist']['only-include']
+        paths = []
+        for name in includes:
+            path = ROOT / name
+            paths.extend(path.rglob("*") if path.is_dir() else [path])
 
     affected_files = 0
     for path in paths:

@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (first PyPI release)
+
+### Distribution and publishing
+
+- First PyPI release as `manyagents`, maintained by Latent Reasoning Works
+  under MIT, supporting Python 3.11–3.12. Version remains 0.2.0.
+- Explicit wheel and source distribution allowlists retain the package's Hydra
+  configuration data and exclude repository-only material. Source distributions
+  include tests, README, license, changelog, citation, and project metadata.
+- Releases build once, verify the wheel and a separate wheel rebuilt from the
+  sdist in clean environments, then use PyPI trusted publishing and attach the
+  verified artifacts to a GitHub release. Manual runs default to verification only.
+- Dependency floors now cover existing features: OpenAI `reasoning_effort`
+  (`>=1.58.0`), Anthropic tool calls (`>=0.28.0`), and the default Qwen3 model
+  (Transformers `>=4.51.0`, optional vLLM `>=0.8.5`). No library behavior changes.
 
 **Scoring is not comparable across this upgrade from 0.1.1.** This is a minor
 version deliberately: unlike the deliberately numbered 0.1.1 release, this
