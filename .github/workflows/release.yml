@@ -6,7 +6,7 @@ name: Release
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the verified artifacts to PyPI and GitHub
+        description: Publish the verified artifacts to PyPI
         type: boolean
         required: false
         default: false
@@ -125,21 +125,25 @@ jobs:
         with:
           name: python-distributions
           path: dist
-      - name: Check GitHub release credential before publishing
-        env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo 'Set the release environment secret GH_RELEASE_TOKEN (repository Contents: write).'
-            exit 1
-          fi
       - name: Publish to PyPI with trusted publishing
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  release:
+    needs: publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
       - name: Attach verified distributions to a GitHub release
         env:
-          # A separate repository-scoped credential keeps GITHUB_TOKEN OIDC-only.
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
-          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_SHA: ${{ github.sha }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
