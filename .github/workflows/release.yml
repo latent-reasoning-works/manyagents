@@ -1,0 +1,151 @@
+name: Release
+
+'on':
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified artifacts to PyPI and GitHub
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+      - name: Check public source hygiene
+        run: >-
+          python -c "import runpy;
+          runpy.run_path('tests/test_release_hygiene.py')['test_public_tree_has_no_retired_identifiers']()"
+      - name: Check release version
+        id: version
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          from pathlib import Path
+          import tomllib
+
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          tree = ast.parse(Path('manyagents/__init__.py').read_text())
+          package_version, = [ast.literal_eval(node.value) for node in tree.body
+                              if isinstance(node, ast.Assign)
+                              and any(isinstance(target, ast.Name) and target.id == '__version__'
+                                      for target in node.targets)]
+          assert package_version == version
+          tag = f'v{version}'
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              assert os.environ['GITHUB_REF_NAME'] == tag, 'Tag does not match package version'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'tag={tag}\n')
+          PY
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Check distribution metadata
+        run: uvx --from twine twine check --strict dist/*
+      - name: Record artifact SHA-256 hashes
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('## Distribution SHA-256 hashes\n\n```text\n')
+              for path in sorted(Path('dist').iterdir()):
+                  if path.suffix == '.whl' or path.name.endswith('.tar.gz'):
+                      summary.write(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n')
+              summary.write('```\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - name: Verify clean wheel and sdist installs, Hydra configs, and console help
+        run: python scripts/verify_release.py dist
+
+  publish:
+    needs: [build, verify]
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - name: Check GitHub release credential before publishing
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo 'Set the release environment secret GH_RELEASE_TOKEN (repository Contents: write).'
+            exit 1
+          fi
+      - name: Publish to PyPI with trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Attach verified distributions to a GitHub release
+        env:
+          # A separate repository-scoped credential keeps GITHUB_TOKEN OIDC-only.
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/*.whl dist/*.tar.gz --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" dist/*.whl dist/*.tar.gz \
+              --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" \
+              --title "$RELEASE_TAG" --generate-notes
+          fi
