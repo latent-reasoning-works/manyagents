@@ -11,7 +11,7 @@
 </pre>
 
 [![CI](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml/badge.svg)](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT-8B5CF6.svg)](LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-8B5CF6.svg)](https://github.com/latent-reasoning-works/manyagents/blob/main/LICENSE)
 [![python](https://img.shields.io/badge/python-3.11–3.12-8B5CF6.svg)](https://www.python.org)
 [![uv](https://img.shields.io/badge/pkg-uv-8B5CF6.svg)](https://docs.astral.sh/uv/)
 
@@ -22,7 +22,7 @@
 Run one prompt through many models, score what comes back, and for local models keep the hidden states that produced it.
 
 ```bash
-uv sync
+python -m pip install manyagents
 manyagents experiment=test_wandb     # two prompts, mock agent, no keys or GPU
 ```
 
@@ -33,7 +33,14 @@ manyagents experiment=test_wandb     # two prompts, mock agent, no keys or GPU
 
 ## install
 
-Python **3.11–3.12**, from a source checkout:
+Python **3.11–3.12**. Install the first PyPI release:
+
+```bash
+python -m pip install manyagents==0.2.0
+python -m pip install 'manyagents[traces]==0.2.0'  # optional trace capture and geometry
+```
+
+For development, from a source checkout:
 
 ```bash
 git clone https://github.com/latent-reasoning-works/manyagents.git
@@ -45,9 +52,9 @@ uv sync --extra traces --extra vllm  # vLLM generation + HF hidden-state replay
 uv sync --extra full                 # traces + W&B + Biomni; vLLM stays separate
 ```
 
-Core is already large: `accelerate` pulls in torch. Sync every extra you need in one command, then activate `.venv` or prefix commands with `uv run --no-sync` so the extras stay put. API adapters need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; Ollama needs a running server with a pulled model; large HF models and vLLM need a GPU. This page describes 0.2.0, which is this checkout; the previous public release installs with `uv pip install "manyagents @ git+https://github.com/latent-reasoning-works/manyagents@v0.1.1"`.
+Core is already large: `accelerate` pulls in torch. Sync every extra you need in one command, then activate `.venv` or prefix commands with `uv run --no-sync` so the extras stay put. API adapters need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; Ollama needs a running server with a pulled model; large HF models and vLLM need a GPU. This page describes 0.2.0, the first PyPI release; earlier releases were Git tags.
 
-**Upgrading from 0.1.1:** scores are **incomparable across this upgrade**. Local rejections are now filtered and a failure-indicator match blocks a pass, so re-extract stored `raw_response` text before comparing rates. Details in the [changelog](CHANGELOG.md).
+**Upgrading from 0.1.1:** scores are **incomparable across this upgrade**. Local rejections are now filtered and a failure-indicator match blocks a pass, so re-extract stored `raw_response` text before comparing rates. Details in the [changelog](https://github.com/latent-reasoning-works/manyagents/blob/main/CHANGELOG.md).
 
 ## quickstart
 
@@ -80,9 +87,9 @@ result["metrics"]["mock"]   # {"jaccard_similarity_across_prompts": 1.0, "ground
 
 `run()` composes the same Hydra config as the CLI and keeps its exit semantics: `SystemExit` propagates when nothing succeeded, so catch it when embedding. Bare `manyagents` lists the shipped experiments and exits nonzero. The sweep's `local_llm` runs `Qwen/Qwen3-0.6B`; `agents.local_llm.agent.config.model=<id>` picks another.
 
-**Scoring is a heuristic**, not an answer judge: it matches method mentions against a fixed vocabulary and drops those under a rejection cue. What it catches and what slips past is in [experiment configurations](manyagents/configs/experiment/README.md).
+**Scoring is a heuristic**, not an answer judge: it matches method mentions against a fixed vocabulary and drops those under a rejection cue. What it catches and what slips past is in [experiment configurations](https://github.com/latent-reasoning-works/manyagents/blob/main/manyagents/configs/experiment/README.md).
 
-## [adapters](docs/python-api.md)
+## [adapters](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/python-api.md)
 
 > 11 classes, 12 registry keys
 
@@ -118,9 +125,9 @@ trace.steps, trace.model, trace.task                    # ReasoningStep list, Mo
 result["output_files"]["hidden_states"]                 # Path to the NPZ
 ```
 
-The tool loop, `agent_loop.run_agent_loop(prompt, agent="openai", tools=[...])`, uses a second, chat-shaped protocol: a registered adapter's `await chat(messages, tools=..., model=...)` returning the assistant message, its text, and normalized tool calls (`claude`, `openai`, `ollama` implement it). The loop executes the calls the model makes and repeats until it stops or `max_steps` runs out. Tool bodies run with your permissions. The result contract, the loop, and DR workflows are in [docs/python-api.md](docs/python-api.md).
+The tool loop, `agent_loop.run_agent_loop(prompt, agent="openai", tools=[...])`, uses a second, chat-shaped protocol: a registered adapter's `await chat(messages, tools=..., model=...)` returning the assistant message, its text, and normalized tool calls (`claude`, `openai`, `ollama` implement it). The loop executes the calls the model makes and repeats until it stops or `max_steps` runs out. Tool bodies run with your permissions. The result contract, the loop, and DR workflows are in [docs/python-api.md](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/python-api.md).
 
-## [reasoning traces](docs/running_experiments.md#generation-and-traces)
+## [reasoning traces](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/running_experiments.md#generation-and-traces)
 
 > capture and measure hidden-state trajectories
 
@@ -136,7 +143,7 @@ manyagents experiment=trace_extraction agent=hf agent.config.model=Qwen/Qwen3-0.
 manyagents experiment=trace_extraction agent=vllm
 ```
 
-Both paths record the state at the position that predicts each emitted token, so the last token's own position is never captured. HF reads these during `generate()`; vLLM generates first and a teacher-forced HF pass over the emitted ids recovers them, agreeing within tolerance under matching model conditions and holding both models in memory. Text-step alignment stays approximate, because segmentation re-encodes decoded text. Details and the exact caveats: [running experiments](docs/running_experiments.md#generation-and-traces).
+Both paths record the state at the position that predicts each emitted token, so the last token's own position is never captured. HF reads these during `generate()`; vLLM generates first and a teacher-forced HF pass over the emitted ids recovers them, agreeing within tolerance under matching model conditions and holding both models in memory. Text-step alignment stays approximate, because segmentation re-encodes decoded text. Details and the exact caveats: [running experiments](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/running_experiments.md#generation-and-traces).
 
 Segmentation decides what a step is — `delimiter` (newlines, the default), `tags`, `velocity` (peaks in cosine distance between consecutive token states), or `hybrid`. Token states are mean-pooled per step; the experiment writes a `TraceStore`:
 
@@ -206,11 +213,11 @@ CellForge and Kosmos run local subprocesses with the caller's environment; CellF
 
 ## docs & development
 
-- [Running experiments](docs/running_experiments.md): local runs, traces, GPU requirements, cluster prerequisites
-- [Config groups](docs/config_groups.md): Hydra packages and override paths
-- [Python API](docs/python-api.md): adapter table, result contract, tool loop, DR workflows
-- [Design decisions](docs/design_decisions.md): why schema-on-read, why a direct Python API
-- [Contributing](docs/CONTRIBUTING.md), [changelog](CHANGELOG.md), [code of conduct](CODE_OF_CONDUCT.md), [security](SECURITY.md), [citation](CITATION.cff)
+- [Running experiments](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/running_experiments.md): local runs, traces, GPU requirements, cluster prerequisites
+- [Config groups](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/config_groups.md): Hydra packages and override paths
+- [Python API](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/python-api.md): adapter table, result contract, tool loop, DR workflows
+- [Design decisions](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/design_decisions.md): why schema-on-read, why a direct Python API
+- [Contributing](https://github.com/latent-reasoning-works/manyagents/blob/main/docs/CONTRIBUTING.md), [changelog](https://github.com/latent-reasoning-works/manyagents/blob/main/CHANGELOG.md), [code of conduct](https://github.com/latent-reasoning-works/manyagents/blob/main/CODE_OF_CONDUCT.md), [security](https://github.com/latent-reasoning-works/manyagents/blob/main/SECURITY.md), [citation](https://github.com/latent-reasoning-works/manyagents/blob/main/CITATION.cff)
 
 ```bash
 uv sync --locked

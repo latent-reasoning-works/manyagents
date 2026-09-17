@@ -148,7 +148,7 @@ Experiment configs are `# @package _global_`. Evaluation names agents under `age
 
 ## Ecosystem Boundary Rules
 
-- **Never import from manyRuns.** manyRuns (run harness, not yet public) imports `manyagents.adapters` and `manyagents.agent_loop`; the arrow never points back. Its predecessor Geomancy is deprecated; do not reintroduce it either. No boundary script ships here: `grep -rn "manyruns\|geomancy" manyagents/` must stay empty.
+- **Never import from manyRuns.** manyRuns (run harness, not yet public) imports `manyagents.adapters` and `manyagents.agent_loop`; the arrow never points back. The retired learner is deprecated; do not reintroduce it either. No boundary script ships here: `grep -rn "manyruns" manyagents/` must stay empty.
 - **manyLatents is optional.** Lazy-import inside methods, guard registry entries with `try/except ImportError`, mark tests `requires_manylatents`. Compute belongs there; manyagents coordinates it.
 - **GlobalHydra clearing** happens inside `manylatents.api.run()`; do not clear it in adapters.
 - **`compute_metric()` returns `float`** (manylatents, since March 2026). Use `compute_metric_detailed()` for per-sample arrays.

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tomllib
 from types import ModuleType
 from unittest.mock import MagicMock
@@ -16,21 +17,44 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_lock_uses_registry_source():
+    if not (ROOT / '.git').exists() and not (ROOT / 'uv.lock').exists():
+        pytest.skip('The development lockfile is not part of the sdist')
     lock = tomllib.loads((ROOT / 'uv.lock').read_text())
     package, = [p for p in lock['package'] if p['name'] == 'manylatents']
     assert package['source'] == {'registry': 'https://pypi.org/simple'}
     assert package['version'].startswith('0.1.')
 
 
-def test_wheel_builds_and_has_no_hook(tmp_path):
+@pytest.mark.parametrize('target,expected', [
+    ('wheel', ['manyagents']),
+    ('sdist', [
+        'manyagents', 'tests', 'README.md', 'LICENSE', 'CHANGELOG.md',
+        'CITATION.cff', 'pyproject.toml',
+    ]),
+])
+def test_build_include_lists(target, expected):
+    project = tomllib.loads((ROOT / 'pyproject.toml').read_text())
+    build = project['tool']['hatch']['build']
+    assert build['targets'][target]['only-include'] == expected
+    assert not build.get('force-include')
+    assert not build['targets'][target].get('force-include')
+
+
+def test_distributions_build_and_have_no_hook(tmp_path):
     project = tomllib.loads((ROOT / 'pyproject.toml').read_text())
     assert 'custom' not in project['tool']['hatch']['build'].get('hooks', {})
     assert not (ROOT / 'hatch_build.py').exists()
-    subprocess.run(['uv', 'build', '--wheel', '--out-dir', str(tmp_path)], cwd=ROOT, check=True)
+    subprocess.run(['uv', 'build', '--out-dir', str(tmp_path)], cwd=ROOT, check=True)
     wheel, = tmp_path.glob('*.whl')
     with zipfile.ZipFile(wheel) as archive:
         assert 'manyagents/inference.py' in archive.namelist()
         assert not any('hatch_build' in name for name in archive.namelist())
+        assert not any(Path(name).name.startswith('test_') for name in archive.namelist()
+                       if name.endswith('.py'))
+        configs = {path.relative_to(ROOT).as_posix()
+                   for path in (ROOT / 'manyagents/configs').rglob('*.yaml')}
+        assert configs
+        assert configs <= set(archive.namelist())
         version = project['project']['version']
         metadata = archive.read(f'manyagents-{version}.dist-info/METADATA').decode()
         assert 'License-Expression: MIT' in metadata
@@ -38,6 +62,23 @@ def test_wheel_builds_and_has_no_hook(tmp_path):
         assert 'Provides-Extra: traces' in metadata
         assert 'Provides-Extra: wandb' in metadata
         assert 'Provides-Extra: docs' not in metadata
+        assert 'Author: Latent Reasoning Works' in metadata
+        assert 'Requires-Python: <3.13,>=3.11' in metadata
+
+    sdist, = tmp_path.glob('*.tar.gz')
+    with tarfile.open(sdist) as archive:
+        names = {Path(name).relative_to(sdist.name.removesuffix('.tar.gz')).as_posix()
+                 for name in archive.getnames()}
+        # The sdist must contain exactly the source, tests, release files and
+        # generated metadata below. Hatch may force-include .gitignore/.hgignore;
+        # no other top-level content (including build hooks) may appear.
+        optional_vcs_ignore_files = {'.gitignore', '.hgignore'}
+        assert {name.split('/')[0] for name in names - optional_vcs_ignore_files} - {'.'} == {
+            'manyagents', 'tests', 'README.md', 'LICENSE', 'CHANGELOG.md',
+            'CITATION.cff', 'pyproject.toml', 'PKG-INFO',
+        }
+        assert configs <= names
+        assert 'tests/test_packaging.py' in names
 
 
 @pytest.fixture

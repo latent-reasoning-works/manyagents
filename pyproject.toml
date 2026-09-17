@@ -1,25 +1,34 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "manyagents"
 version = "0.2.0"
 license = "MIT"
-description = "Multi-agent evaluation and reasoning trace extraction"
+license-files = ["LICENSE"]
+description = "Multi-agent evaluation and reasoning trace extraction for scientific workflows"
 authors = [
-    { name = "César Miguel Valdez Córdova", email = "cesar.valdez@mila.quebec" },
+    { name = "Latent Reasoning Works" },
 ]
 readme = "README.md"
 requires-python = ">=3.11, <3.13"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "pydantic>=2.0",
     "hydra-core>=1.3",
     "hydra-submitit-launcher>=1.2",
     "numpy>=1.20",
-    "openai>=1.0.0",
-    "anthropic>=0.20.0",
-    "transformers>=4.40.0",
+    "openai>=1.58.0",  # chat.completions.create(reasoning_effort=...)
+    "anthropic>=0.28.0",  # messages.create(tools=...) outside the beta API
+    "transformers>=4.51.0",  # Qwen3, the shipped local-model default
     "accelerate>=0.27.0",
     "pandas>=2.3.2",
 ]
@@ -36,18 +45,28 @@ wandb = ["wandb>=0.25"]
 full = ["manyagents[traces,wandb]", "biomni>=0.0.2"]
 # vLLM generation backend (GPU). Imported lazily by VLLMAdapter / inference.py,
 # so the core install never requires it and CPU CI skips the vLLM tests.
-vllm = ["vllm>=0.6.0"]
+vllm = ["vllm>=0.8.5"]  # Qwen3 support
 dev = ["pytest>=6.0", "pytest-asyncio>=0.23.0", "ruff>=0.6.0", "pre-commit>=2.0"]
 
 [project.scripts]
 manyagents = "manyagents.main:main"
 manyagents-generate-registry = "manyagents.adapters._generate_metric_registry:main"
 
-[tool.hatch.metadata]
-allow-direct-references = true
-
 [tool.hatch.build.targets.wheel]
-packages = ["manyagents"]
+# Hydra composes configs from the installed package; keep all package data.
+only-include = ["manyagents"]
+exclude = ["manyagents/**/test_*.py"]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "manyagents",
+    "tests",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CITATION.cff",
+    "pyproject.toml",
+]
 
 [tool.uv]
 managed = true

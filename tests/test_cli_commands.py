@@ -98,6 +98,8 @@ def test_bare_cli_lists_available_experiments(cli, tmp_path):
 
 @pytest.mark.parametrize("document", ["README.md", "CLAUDE.md"])
 def test_documented_sweep_executes_all_jobs(document, cli, tmp_path, documented_example):
+    if document == 'CLAUDE.md' and not (ROOT / '.git').exists() and not (ROOT / document).exists():
+        pytest.skip('Repository-only agent instructions are not part of the sdist')
     command = documented_example((ROOT / document).read_text(), "evaluation-sweep", "bash")
     completed, calls = cli(command)
     assert len(completed) == 3
