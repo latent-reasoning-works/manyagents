@@ -69,9 +69,13 @@ def test_distributions_build_and_have_no_hook(tmp_path):
     with tarfile.open(sdist) as archive:
         names = {Path(name).relative_to(sdist.name.removesuffix('.tar.gz')).as_posix()
                  for name in archive.getnames()}
-        assert {name.split('/')[0] for name in names} - {'.', 'PKG-INFO'} == {
+        # The sdist must contain exactly the source, tests, release files and
+        # generated metadata below. Hatch may force-include .gitignore/.hgignore;
+        # no other top-level content (including build hooks) may appear.
+        optional_vcs_ignore_files = {'.gitignore', '.hgignore'}
+        assert {name.split('/')[0] for name in names - optional_vcs_ignore_files} - {'.'} == {
             'manyagents', 'tests', 'README.md', 'LICENSE', 'CHANGELOG.md',
-            'CITATION.cff', 'pyproject.toml',
+            'CITATION.cff', 'pyproject.toml', 'PKG-INFO',
         }
         assert configs <= names
         assert 'tests/test_packaging.py' in names
