@@ -1,7 +1,8 @@
 # Publishing manyagents
 
-Version **0.2.0** is the first PyPI release. Earlier versions were Git tags;
-the release preparation changes packaging, metadata, and documentation only.
+Version **0.0.1** is the first PyPI release. Earlier version labels were pre-release
+development tags, not published releases. The release preparation changes
+packaging, metadata, and documentation only.
 
 ## What ships
 
@@ -25,7 +26,7 @@ changed **1 file**, removing **2 occurrences**; the subsequent sweep found **0**
 
 ## Metadata and dependency review
 
-The project and citation version remain 0.2.0; `manyagents.__version__` and the
+The project and citation version are 0.0.1; `manyagents.__version__` and the
 lockfile agree. PyPI metadata identifies Latent Reasoning Works as the author,
 uses the MIT license expression and license file, describes the scientific
 workflow use case, and limits Python to `>=3.11,<3.13`. README links to repository
@@ -65,16 +66,15 @@ register a GitHub publisher with these exact values:
 
 Create the GitHub environment `release` and configure its approval/deployment
 rules for the organisation's release policy. PyPI publishing uses GitHub OIDC;
-there is no PyPI token secret.
+there is no PyPI token secret. The pending publisher and the `release`
+environment are the only manual setup required.
 
-The publish job has **only** `id-token: write`. GitHub release uploads additionally
-need repository Contents write access, so create an environment secret named
-`GH_RELEASE_TOKEN`: a fine-grained GitHub token restricted to this repository
-with **Contents: Read and write**. It is used only by the GitHub release steps,
-never by the PyPI action. Build and verify have only `contents: read`, with no
-OIDC access. The workflow checks that the release secret is present before
-publishing to PyPI. Missing permissions or an expired credential can still make
-the later GitHub upload fail; PyPI publication cannot be rolled back.
+The publish job has **only** `id-token: write` and publishes to PyPI through OIDC.
+A separate release job has only `contents: write` and uses the built-in
+`GITHUB_TOKEN` to attach distributions to a GitHub release after publishing
+succeeds on a tag push. No personal access token or additional secret is needed.
+Build and verify have only `contents: read`, with no OIDC access. A later GitHub
+upload failure does not roll back PyPI publication.
 
 ## Checks to run with network access
 
@@ -103,11 +103,13 @@ that development files do not enter the sdist.
 
 ## Workflow operation
 
-`.github/workflows/release.yml` has three jobs: build, verify (Python 3.11 and
-3.12), and publish. Build uploads the sdist and wheel as one immutable workflow
-artifact and records their SHA-256 hashes in its job summary. Verify downloads
+`.github/workflows/release.yml` has four jobs: build, verify (Python 3.11 and
+3.12), publish, and release. Build uploads the sdist and wheel as one immutable
+workflow artifact and records their SHA-256 hashes in its job summary. Verify downloads
 that artifact. Publish waits for both verification jobs and uploads the same
-original distributions, with no rebuild in the privileged job.
+original distributions. Release waits for publish and downloads the same build
+artifact to attach its original sdist and wheel, with no rebuild in either
+privileged job.
 
 Once the workflow is on the default branch, a manual verification-only run is:
 
@@ -116,13 +118,13 @@ gh workflow run release.yml --repo latent-reasoning-works/manyagents --ref main 
 ```
 
 Tag pushes matching `v*` publish after verification; the tag must equal
-`v` plus the package version (for this release, `v0.2.0`). Manual dispatch also
-publishes if `publish=true`. From a branch, that creates the corresponding
-version tag at the dispatched commit when creating the GitHub release. From a
-tag, the same version check applies. Configure environment rules accordingly.
+`v` plus the package version (for this release, `v0.0.1`). Manual dispatch also
+publishes to PyPI if `publish=true`; it does not run the GitHub release job or
+create a tag. From a tag, the same version check applies. Configure environment
+rules accordingly.
 
 The first real publish creates the PyPI project through its pending publisher.
-The GitHub step then creates the release and attaches both distributions, or
-attaches them to an existing release. Existing release assets are never
+On tag pushes, the release job then creates the release and attaches both
+distributions, or attaches them to an existing release. Existing release assets are never
 overwritten. PyPI versions are immutable: use verification-only dispatches for
 rehearsals and publish each version once.
