@@ -1,11 +1,15 @@
 # Changelog
 
-## 0.2.0 (first PyPI release)
+## 0.0.1 (first release)
+
+This is the first published release. Earlier repository labels and Git tags
+were pre-release development milestones, not published releases. The notes
+below consolidate that development work, including the unreleased 0.2.0 entry.
 
 ### Distribution and publishing
 
 - First PyPI release as `manyagents`, maintained by Latent Reasoning Works
-  under MIT, supporting Python 3.11–3.12. Version remains 0.2.0.
+  under MIT, supporting Python 3.11–3.12.
 - Explicit wheel and source distribution allowlists retain the package's Hydra
   configuration data and exclude repository-only material. Source distributions
   include tests, README, license, changelog, citation, and project metadata.
@@ -16,13 +20,13 @@
   (`>=1.58.0`), Anthropic tool calls (`>=0.28.0`), and the default Qwen3 model
   (Transformers `>=4.51.0`, optional vLLM `>=0.8.5`). No library behavior changes.
 
-**Scoring is not comparable across this upgrade from 0.1.1.** This is a minor
-version deliberately: unlike the deliberately numbered 0.1.1 release, this
-change alters what a ground-truth pass means, including for already saved text.
+**Scores from the pre-release `v0.1.1` tag are not comparable with 0.0.1.**
+The scoring changes alter what a ground-truth pass means, including for already
+saved text.
 Previously collected match rates can be inflated by refusals and hedges that
 mention expected methods, and by answers that also name configured failure
 methods. Do not combine rates across versions. Re-extract saved `raw_response`
-text and recompute all scores with 0.2.0; recomputing from old `extracted_methods`
+text and recompute all scores with 0.0.1; recomputing from old `extracted_methods`
 alone cannot recover which mentions were rejected. Preserve the old results
 and record the scorer version with comparisons.
 
@@ -75,11 +79,15 @@ review. Executable examples now use stable markers and fenced-block extraction,
 including shell continuations; geometry checks assert real outputs without
 incidental example variable names.
 
-## 0.1.1
+### Migration from pre-release development snapshots
 
-**0.1.1 is not a drop-in upgrade from 0.1.0.** The version remains 0.1.1 deliberately; the patch version does not imply API, result-schema, or experimental comparability. Review these migrations before upgrading custom adapters, readers, and stored trajectories.
+The following guidance was previously recorded under 0.1.1 and is retained for
+users of development snapshots labeled 0.1.0 or 0.1.1. Neither was a published
+release. The first release does not imply API, result-schema, or experimental
+comparability with those snapshots. Review these migrations before updating
+custom adapters, readers, and stored trajectories.
 
-### Adapter results and custom adapters
+#### Adapter results and custom adapters
 
 Every `AdapterResult` must contain `success: bool`, `summary: str`, and `output_files: dict`, including failed results. `metadata: dict` and `embeddings: dict` remain optional. Boundary validation rejects missing or incorrectly typed required fields. Import `AdapterResult` and `AgentAdapter` from `manyagents.adapters.base`.
 
@@ -101,15 +109,15 @@ return self.success_response(
 
 A text adapter must provide nonempty response content under `output_files["raw_response"]`. Built-in text adapters return a `pathlib.Path`; the evaluator also accepts an inline string at that key. It does not turn a summary into a response. Artifact/compute adapters should declare `PRODUCES_TEXT_RESPONSE = False`; the text-evaluation runner rejects them before dispatch. Unknown adapter names and malformed results are failures rather than implicit successes.
 
-### Mock response reader migration
+#### Mock response reader migration
 
 Mock no longer returns inline text at `output_files["response"]`. It writes the response and returns a **`Path`** at `output_files["raw_response"]`:
 
 ```python
-# 0.1.0 reader
+# Earlier pre-release reader (0.1.0 snapshot)
 text = result["output_files"]["response"]  # inline str
 
-# 0.1.1 reader (also works for the other built-in text adapters)
+# Current reader (also works for the other built-in text adapters)
 if not result["success"]:
     raise RuntimeError(result["summary"])
 response_path = result["output_files"]["raw_response"]  # pathlib.Path
@@ -118,7 +126,7 @@ text = response_path.read_text()
 
 The old key is not an alias. Adapter response files can be overwritten by later calls; evaluation copies response text into `results.json`, which is the durable experiment record. Consume or copy individual response files before reusing an adapter.
 
-### Exit status, partial failures, and missing measurements
+#### Exit status, partial failures, and missing measurements
 
 Bare CLI invocation without an experiment, empty or unknown `active_agents`, unknown adapters, and artifact adapters used for text evaluation exit nonzero. Evaluation with zero successful prompt/agent pairs saves its results and then exits nonzero. A run with at least one successful evaluation may return normally even when other evaluations fail: inspect per-prompt `success`/`error` and each system's `prompts_evaluated`/`prompts_failed`. Metrics use successful evaluations, not failed responses padded with zeros.
 
@@ -141,7 +149,7 @@ Missing scoring or validation functions now raise `ValueError`. A validator retu
 
 Tag segmentation tracks successive occurrences of repeated sentences. Pooling rejects empty, reversed, negative, and out-of-range token intervals with `ValueError`; it no longer clips or widens them to fabricate a vector.
 
-### Python and installation extras
+#### Python and installation extras
 
 Supported Python versions are **3.11 and 3.12** (`>=3.11,<3.13`). Core includes API clients, mock, and local Hugging Face generation; `accelerate` brings in torch, so core is still a large installation.
 
@@ -157,7 +165,7 @@ Supported Python versions are **3.11 and 3.12** (`>=3.11,<3.13`). Core includes 
 
 The metric registry is generated in memory at use time. Wheels no longer use a registry build hook or require manylatents to build. `manyagents-generate-registry` prints JSON; use `--output /writable/path/registry.json` for an explicit cache. Package metadata now declares the existing MIT license.
 
-### Model defaults and comparable experiments
+#### Model defaults and comparable experiments
 
 Claude and Biomni now default to `claude-opus-5`. Previously their YAML defaults named `claude-sonnet-4-20250514`; Claude's direct adapter fallback separately named `claude-opus-4-8`. OpenAI retains `gpt-4o`. HF and vLLM shipped configs select `Qwen/Qwen3-0.6B`, subject to experiment and cluster overrides. These describe this release's configuration, not service availability guarantees.
 
@@ -169,7 +177,7 @@ manyagents experiment=invariance_full 'active_agents=[claude,biomni]' agents.cla
 
 For the single-agent trace path, use `agent.config.model=<model-or-snapshot>`; direct Python adapter calls use `task_config["model"]` for Claude/HF/vLLM/OpenAI and `task_config["llm"]` for Biomni. Pin temperature, token limits, repetition penalty, segmentation, captured layers, and dtypes too. The vLLM engine defaults to `bfloat16`; pre-Ampere GPUs require an explicit supported dtype such as `agent.config.dtype=float16`. Hidden-state storage dtype is a separate setting: direct `inference.extract_trace(state_dtype="float32")` preserves a wider range, while the Hydra adapter path currently stores float16. Changing dtypes or backends can change trajectory geometry even with the same model.
 
-### GVector outcomes, arithmetic, and legacy data
+#### GVector outcomes, arithmetic, and legacy data
 
 `GVector.measurements` records named outcomes: `measured` with a finite `value`, `failed` with a `reason`, `not_requested`, or `unknown` for legacy provenance. The four numeric fields remain for schema compatibility. Their zeros for unavailable metrics are **padding only**, never measured zeros. A measured zero explicitly has `{"status": "measured", "value": 0.0}`.
 

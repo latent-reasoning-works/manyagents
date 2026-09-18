@@ -1,6 +1,6 @@
 # manyAgents
 
-Multi-agent orchestration for scientific workflows. Hydra + pydantic + uv. Version **0.2.0** (unreleased; 0.1.1 is the public tag).
+Multi-agent orchestration for scientific workflows. Hydra + pydantic + uv. Version **0.0.1** (first release; earlier version labels were pre-release development tags).
 
 manyAgents asks many language models which analysis fits a dataset's geometry, scores the text against configured expectations, and for local models records hidden-state trajectories that manyLatents measures. This file is for agents editing the repo. Newcomer material is `README.md`; the 3×3 design and scoring vocabulary are `manyagents/configs/experiment/README.md`; the adapter table, result contract, tool loop, and DR workflows are `docs/python-api.md`. Point at those; do not duplicate them here.
 
@@ -15,7 +15,7 @@ Adapters, orchestration, LLM metrics, reasoning trace capture, the tool-calling 
 
 ## The contract: failure never becomes a number
 
-Every bug in this repo's release history is the same bug: something that could not be measured turned into a plausible number. Fixed instances: a dropped mock response scored as an empty success; exit 0 after every API call failed; Claude multi-block responses truncated to the first block; Biomni scoring its own log as the answer; zero-token trace segments pooled into finite vectors; random scores when no scorer was configured; GVector padding zeros read as measurements; and a model that *rejected* every method scoring as a correct answer. When touching scoring, aggregation, adapters, or trace capture, hold this line:
+Every bug in this repo's development history is the same bug: something that could not be measured turned into a plausible number. Fixed instances: a dropped mock response scored as an empty success; exit 0 after every API call failed; Claude multi-block responses truncated to the first block; Biomni scoring its own log as the answer; zero-token trace segments pooled into finite vectors; random scores when no scorer was configured; GVector padding zeros read as measurements; and a model that *rejected* every method scoring as a correct answer. When touching scoring, aggregation, adapters, or trace capture, hold this line:
 
 - An unavailable measurement is `None` in Python, `null` in `results.json`, `n/a` in summaries (`metrics.llm.format_metric`). Never 0, never an empty set counted as agreement.
 - A run that produced nothing exits nonzero: bare `manyagents`, empty or unknown `active_agents`, unknown adapter, compute adapter used for text evaluation, zero successful evaluations, zero persisted traces. Partial failures are counted (`prompts_failed`, `traces_failed`), never padded.
@@ -28,12 +28,12 @@ Every bug in this repo's release history is the same bug: something that could n
 
 Tests protect this by executing the *documented* commands, not workarounds: a green suite once coexisted with seven experiments broken by their own README commands. `tests/test_cli_commands.py` runs every shipped `experiment=<name>` bare, both mock quickstarts, and the `example:evaluation-sweep` marker block from **both** `README.md` and this file; `tests/test_trace_geometry_bridge.py` executes README's `example:trace-geometry` block. Edit those blocks knowing they run: exactly one fenced block per marker pair, bash continuations allowed, and the literal `<!-- example:NAME -->` string may appear nowhere else in the document, prose included, or extraction fails. Regression tests for the list above: `tests/test_fail_closed.py`, `test_experiment_exit.py`, `test_result_contract.py`, `test_gvector_contract.py`.
 
-## Scoring semantics (changed in 0.2.0)
+## Scoring semantics (first release)
 
 `metrics/extractor.py` drops a method mention under a local English rejection cue ("do not use", "avoid", "instead of", "rather than", "neither … nor", "not appropriate", …) scoped to the sentence/contrast boundary, eight words after a prefix cue, or the next affirmative cue; a separate unrejected mention still counts. `check_ground_truth_match` passes only with at least one extracted expected method **and no extracted `failure_indicators` match** — the failure match is a veto, not a diagnostic. `ground_truth_matches` and `match_ratio` remain coverage diagnostics. Consequences:
 
 - Mock 3×3 match rate is **3/9 (33.3%)**, down from 6/9; `test_wandb` mock is 0.5; the shipped sweep is 0.25 per agent. Tests pin all three.
-- Rates are **not comparable across 0.1.1 → 0.2.0**. Re-extract from saved `raw_response` text; `extracted_methods` alone cannot recover rejections.
+- Rates from the pre-release `v0.1.1` tag are **not comparable with 0.0.1**. Re-extract from saved `raw_response` text; `extracted_methods` alone cannot recover rejections.
 - **Jaccard is an invariance signal, not an objective.** It averages *all* successful prompt pairs, same-geometry pairs included; two empty sets score 1.0; one consistent method set per geometry, disjoint across geometries, floors at 0.25 on the 3×3 design; inconsistency *within* a geometry lowers it. Do not "improve" it, and do not add a geometry-aware variant without deliberately changing the published definition.
 - It is a vocabulary heuristic, not an answer judge: hedges, quoted advice, and distant negation are not adjudicated. Never describe it as a judge.
 
@@ -161,7 +161,7 @@ Experiment configs are `# @package _global_`. Evaluation names agents under `age
 - **Hidden-state `state_dtype` defaults to `"float16"`**, which overflows massive-activation channels (Sun et al. 2024). Faithful geometry needs direct `inference.extract_trace(state_dtype="float32")`; the adapter path cannot request it yet.
 - **Shipped defaults are executed by tests:** `test_shipped_default_invocation_completes` runs every experiment bare (`baseline_sweep` = 36 jobs, `llm_reasoning_sweep` = 4). Changing a config's defaults changes what that test runs.
 - **Mock is deterministic and pinned:** `tests/test_mock_fixture_scores.py` and `test_cli_commands.py` assert its rates; changing the fixture text changes numbers quoted in README and CHANGELOG.
-- **Version lives in two places:** `pyproject.toml` and `manyagents/__init__.py`; releases also update `uv.lock` and `CHANGELOG.md`.
+- **Version lives in two places:** `pyproject.toml` and `manyagents/__init__.py`; releases also update `uv.lock`, `CITATION.cff`, `CHANGELOG.md`, and versioned documentation.
 
 ## Tests
 

@@ -36,8 +36,8 @@ manyagents experiment=test_wandb     # two prompts, mock agent, no keys or GPU
 Python **3.11–3.12**. Install the first PyPI release:
 
 ```bash
-python -m pip install manyagents==0.2.0
-python -m pip install 'manyagents[traces]==0.2.0'  # optional trace capture and geometry
+python -m pip install manyagents==0.0.1
+python -m pip install 'manyagents[traces]==0.0.1'  # optional trace capture and geometry
 ```
 
 For development, from a source checkout:
@@ -52,9 +52,9 @@ uv sync --extra traces --extra vllm  # vLLM generation + HF hidden-state replay
 uv sync --extra full                 # traces + W&B + Biomni; vLLM stays separate
 ```
 
-Core is already large: `accelerate` pulls in torch. Sync every extra you need in one command, then activate `.venv` or prefix commands with `uv run --no-sync` so the extras stay put. API adapters need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; Ollama needs a running server with a pulled model; large HF models and vLLM need a GPU. This page describes 0.2.0, the first PyPI release; earlier releases were Git tags.
+Core is already large: `accelerate` pulls in torch. Sync every extra you need in one command, then activate `.venv` or prefix commands with `uv run --no-sync` so the extras stay put. API adapters need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; Ollama needs a running server with a pulled model; large HF models and vLLM need a GPU. This page describes 0.0.1, the first PyPI release; earlier version labels were pre-release development tags, not published releases.
 
-**Upgrading from 0.1.1:** scores are **incomparable across this upgrade**. Local rejections are now filtered and a failure-indicator match blocks a pass, so re-extract stored `raw_response` text before comparing rates. Details in the [changelog](https://github.com/latent-reasoning-works/manyagents/blob/main/CHANGELOG.md).
+**Migrating from the pre-release `v0.1.1` tag:** scores are **incomparable across this upgrade**. Local rejections are now filtered and a failure-indicator match blocks a pass, so re-extract stored `raw_response` text before comparing rates. Details in the [changelog](https://github.com/latent-reasoning-works/manyagents/blob/main/CHANGELOG.md).
 
 ## quickstart
 
@@ -237,7 +237,7 @@ If manyagents was useful in your research, a citation goes a long way:
   title     = {manyagents: Multi-agent evaluation and reasoning trace extraction},
   author    = {{Latent Reasoning Works}},
   year      = {2026},
-  version   = {0.2.0},
+  version   = {0.0.1},
   url       = {https://github.com/latent-reasoning-works/manyagents},
   license   = {MIT}
 }

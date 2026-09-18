@@ -1,7 +1,8 @@
 # Publishing manyagents
 
-Version **0.2.0** is the first PyPI release. Earlier versions were Git tags;
-the release preparation changes packaging, metadata, and documentation only.
+Version **0.0.1** is the first PyPI release. Earlier version labels were pre-release
+development tags, not published releases. The release preparation changes
+packaging, metadata, and documentation only.
 
 ## What ships
 
@@ -25,7 +26,7 @@ changed **1 file**, removing **2 occurrences**; the subsequent sweep found **0**
 
 ## Metadata and dependency review
 
-The project and citation version remain 0.2.0; `manyagents.__version__` and the
+The project and citation version are 0.0.1; `manyagents.__version__` and the
 lockfile agree. PyPI metadata identifies Latent Reasoning Works as the author,
 uses the MIT license expression and license file, describes the scientific
 workflow use case, and limits Python to `>=3.11,<3.13`. README links to repository
@@ -117,7 +118,7 @@ gh workflow run release.yml --repo latent-reasoning-works/manyagents --ref main 
 ```
 
 Tag pushes matching `v*` publish after verification; the tag must equal
-`v` plus the package version (for this release, `v0.2.0`). Manual dispatch also
+`v` plus the package version (for this release, `v0.0.1`). Manual dispatch also
 publishes to PyPI if `publish=true`; it does not run the GitHub release job or
 create a tag. From a tag, the same version check applies. Configure environment
 rules accordingly.

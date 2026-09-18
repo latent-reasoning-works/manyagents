@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "manyagents"
-version = "0.2.0"
+version = "0.0.1"
 license = "MIT"
 license-files = ["LICENSE"]
 description = "Multi-agent evaluation and reasoning trace extraction for scientific workflows"
