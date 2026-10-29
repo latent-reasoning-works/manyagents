@@ -82,4 +82,4 @@ Before requesting review, check that tests pass, ruff is clean, the docs match t
 
 Maintainers manage versioning and releases. Release preparation must update both package version locations and the lock, record release notes, and verify the committed source and built wheel before tagging. Those are release tasks, separate from ordinary documentation changes.
 
-Contributors are credited through Git history, pull requests, and release notes. Be respectful and constructive in issues and reviews. Contributions are licensed under the project's [MIT License](../LICENSE).
+Contributors are credited through Git history, pull requests, and release notes. Be respectful and constructive in issues and reviews. Unless you state otherwise, any contribution you intentionally submit for inclusion in manyagents is licensed under the Apache License, Version 2.0, as section 5 of the license describes, without any additional terms or conditions. That includes the license's patent grant (section 3).

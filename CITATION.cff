@@ -7,5 +7,5 @@ authors:
   - name: "Latent Reasoning Works"
 repository-code: "https://github.com/latent-reasoning-works/manyagents"
 url: "https://github.com/latent-reasoning-works/manyagents"
-license: MIT
+license: Apache-2.0
 abstract: "Multi-agent evaluation and reasoning trace extraction for scientific workflows."

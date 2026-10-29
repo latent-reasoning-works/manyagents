@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Relicensed from MIT to Apache-2.0. Releases up to and including 0.0.1 stay under MIT; NOTICE keeps the MIT notice.
+
+
+
 ## 0.0.1 (first release)
 
 This is the first published release. Earlier repository labels and Git tags
