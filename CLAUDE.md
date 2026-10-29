@@ -65,6 +65,8 @@ manyagents --multirun experiment=invariance_full 'active_agents=[claude],[openai
 
 `invariance_full` defines agents `claude`, `openai`, `local_llm`, `biomni` — not `hf` or `mock`. `local_llm` loads HF with `Qwen/Qwen3-0.6B`; override `agents.local_llm.agent.config.model`. The `output_dir` override keeps every sweep job's results. Evaluation (3×3 scenarios) and `trace_extraction` (GSM8K) are separate workflows; nothing measures hidden states while making biological recommendations.
 
+Two console scripts sit outside Hydra because they are a live client, not an experiment: `manyagents-drive <run folder> --model ...` attaches a model to a manyRuns driver seat, and `manyagents-conformance <fixtures.json> --model ...` scores one offline (`docs/python-api.md`, "Driving a manyRuns seat"). They hold this file's contract: a failed call makes every conformance rate `None`, and a seat speaking a protocol other than 1 is refused, never guessed at.
+
 From Python, `manyagents.api.run(overrides)` composes and runs one job (never a multirun). `ManyLatentsAdapter.execute_cached(...)`, `agent_loop.run_agent_loop(...)`, and `workflows.sequence.execute_sequence(...)` are documented in `docs/python-api.md`.
 
 ## Core Abstractions

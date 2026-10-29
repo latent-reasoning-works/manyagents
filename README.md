@@ -205,6 +205,25 @@ The per-trace prints measure raw hidden states. The grouped `compute_metric` cal
 
 `ManyLatentsAdapter` is the wrong door for this: it serves 2-D arrays for DR, its `execute_cached` rejects the stored 3-D trace tensor, and its cached metric registry discovers YAML-backed metrics only, of which manylatents 0.1.7 ships none for trajectories.
 
+## driving a manyruns run
+
+A running manyRuns session opens a **seat** (`outputs/<project>/driver.json`) that any model can attach to. manyRuns never calls the model; the model's program connects. `manyagents-drive` is that program for any adapter with `chat()`:
+
+```bash
+manyagents-drive outputs/<project> --agent ollama --model qwen3:8b
+manyagents-drive outputs/<project> --agent ollama --model qwen3:8b --goal "make the trajectory read as clear branches"
+```
+
+The scientist sets how far the model may go on the run screen (`ctrl+g`: interpret, propose, drive; `ctrl+b`: manual and back, one key each way), or at launch with `MANYRUNS_DRIVER_LEVEL` for an unattended run. The driver answers questions, then makes one change as the strongest verb the level allows, feeds refusals back to the model, and accepts after `--max-applies` changes. `--knobs card.json` passes your card of what each parameter means; the seat offers only names, types and bounds.
+
+Score a model before it drives, offline, against manyRuns' own cases:
+
+```bash
+manyagents-conformance path/to/manyruns/tests/fixtures/driver_conformance.json --agent ollama --model qwen3:1.7b
+```
+
+It reports `legal_rate` (calls the seat would accept), `intent_rate` (the right parameter moved the right way), and `declined_rate` (no call when no change is right). One failed call makes every rate `n/a`. The protocol is manyRuns environment contract §8; `manyagents.seat` speaks protocol 1 and imports nothing from manyRuns.
+
 ## trusted execution
 
 CellForge and Kosmos run local subprocesses with the caller's environment; CellForge needs its install directory via `CellForgeAdapter(cellforge_path=...)` or `CELLFORGE_PATH`. Biomni imports `A1` from `biomni.agent` and runs it in-process through `asyncio.to_thread`: a thread gives no isolation, and an async timeout leaves it running. Trusted task configs only.
