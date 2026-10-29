@@ -360,3 +360,27 @@ def test_a_handbrake_pulled_while_the_model_thinks_stops_the_move():
     done = _drive_with(fs, chat, "more branches", max_applies=2)
     assert fs.verbs() == ["hello", "apply", "say"]
     assert done["refused"] == 0
+
+
+def test_unattended_it_resumes_when_handed_back_from_manual():
+    """Manual and back (one key each way): with a goal, the driver picks up where it was."""
+    state = {"applied": 0}
+
+    def on(req):
+        if req.get("decision") == "accept":
+            return {"ok": True}, [{"event": "finished", "run_id": "r"}]
+        if req["verb"] == "apply":
+            state["applied"] += 1
+            return {"ok": True}, [{"event": "offer", "offer": offer(2)}]
+        return {"ok": True}, []
+
+    fs = FakeSeat(on, level="interpret", hello_offer=offer(1))
+    s = seat.Seat.open(fs.dir)
+    s.pending.extend([{"event": "control", "level": "interpret", "braked": True,
+                       "resume": "drive"},
+                      {"event": "control", "level": "drive", "braked": False, "resume": None}])
+    done = run(asyncio.wait_for(drive.drive(s, chat_returning({"knn": 3}), model="m",
+                                            chooser="llm:m", goal="clear branches"), 10))
+    s.close()
+    assert fs.verbs() == ["hello", "apply", "apply:accept"]
+    assert done["applied"] == 1 and done["accepted"] is True

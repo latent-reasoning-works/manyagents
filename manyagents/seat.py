@@ -99,7 +99,7 @@ class Seat:
     def drain(self) -> int:
         """Queue every event already received, without blocking. Returns how many are queued.
 
-        A driver calls this before it acts, so a ``control`` event (the handbrake) that arrived
+        A driver calls this before it acts, so a ``control`` event (a switch to manual) that arrived
         right behind an ``offer`` is seen before a move is sent."""
         self.sock.setblocking(False)
         try:

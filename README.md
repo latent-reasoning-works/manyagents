@@ -214,7 +214,7 @@ manyagents-drive outputs/<project> --agent ollama --model qwen3:8b
 manyagents-drive outputs/<project> --agent ollama --model qwen3:8b --goal "make the trajectory read as clear branches"
 ```
 
-The scientist sets how far the model may go on the run screen (`ctrl+g`: interpret, propose, drive; `ctrl+b`: handbrake), or at launch with `MANYRUNS_DRIVER_LEVEL` for an unattended run. The driver answers questions, then makes one change as the strongest verb the level allows, feeds refusals back to the model, and accepts after `--max-applies` changes. `--knobs card.json` passes your card of what each parameter means; the seat offers only names, types and bounds.
+The scientist sets how far the model may go on the run screen (`ctrl+g`: interpret, propose, drive; `ctrl+b`: manual and back, one key each way), or at launch with `MANYRUNS_DRIVER_LEVEL` for an unattended run. The driver answers questions, then makes one change as the strongest verb the level allows, feeds refusals back to the model, and accepts after `--max-applies` changes. `--knobs card.json` passes your card of what each parameter means; the seat offers only names, types and bounds.
 
 Score a model before it drives, offline, against manyRuns' own cases:
 

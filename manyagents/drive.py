@@ -85,7 +85,7 @@ async def drive(seat: Seat, chat: Chat, *, model: str, chooser: str, bound: str 
         return reply
 
     while True:
-        # Read every queued event before acting: a refit's offer and the handbrake's control
+        # Read every queued event before acting: a refit's offer and a switch to manual
         # can arrive together, and acting on the first would send a move the seat refuses.
         # Unattended at interpret there is nobody to say anything to, so wait for a level.
         if offer and want and (level != "interpret" or not goal) and not seat.drain():
@@ -147,7 +147,7 @@ async def drive(seat: Seat, chat: Chat, *, model: str, chooser: str, bound: str 
         kind = msg.get("event")
         if kind == "control":
             level = msg.get("level", level)
-            log(f"level {level}{' (handbrake)' if msg.get('braked') else ''}")
+            log(f"level {level}{' (manual; back to ' + str(msg.get('resume')) + ')' if msg.get('braked') else ''}")
         elif kind == "message":
             want, tries, reason = msg.get("text", ""), 0, ""
         elif kind == "offer":
