@@ -54,6 +54,10 @@ Built-in text adapters return a `pathlib.Path` at `raw_response`; the evaluator 
 
 `manyagents.agent_loop.run_agent_loop(prompt, agent=..., tools=[...])` drives any adapter exposing `chat()` (OpenAI, Ollama, Claude) until it stops calling tools or hits `max_steps`. A `manyagents.tools.Tool` pairs a JSON Schema with a trusted sync or async callable; the returned `AgentResult` carries `answer`, the full `messages` transcript (pass it back as `history` to continue), `steps`, `stopped`, and the executed `tool_calls`. Tool bodies run with the caller's permissions.
 
+## Driving a manyRuns seat
+
+`manyagents.seat` is a client for a manyRuns driver seat (environment contract §8, protocol 1): `Seat.open(folder)` reads `driver.json` and refuses another protocol version, `hello(chooser, bound)` attaches, `ask(request)` returns a reply and queues events for `next()`. `offer_tool(offer, knobs)` turns the seat's step offer into one OpenAI function tool, numeric knobs only, with the seat's minimum and known maximum; `check(offer, params)` mirrors what the seat refuses. `manyagents.drive.drive(seat, chat, model=..., chooser=...)` is the turn policy behind `manyagents-drive`; `manyagents.conformance.run(path, chat, model)` scores a model against manyRuns' fixture cases. `chat` is any adapter's `chat` coroutine.
+
 ## DR workflows
 
 `manyagents.workflows.sequence.execute_sequence(workflow, dataset)` chains manylatents algorithms and records a `GVector` (β₀, β₁, participation ratio, local intrinsic dimension) after every step as a `TransformationTrajectory`. Needs `traces`; unavailable measurements have named outcomes, while fixed GVector numeric fields contain zero padding. Read through `gvector.metric_value(name)` to check validity; it raises for failed, unrequested, or unknown measurements.

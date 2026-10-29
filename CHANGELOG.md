@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `manyagents-drive` attaches any adapter with `chat()` to a manyRuns driver seat (protocol 1) and drives a run at the level the scientist allows; `manyagents-conformance` scores a model against manyRuns' conformance cases. New modules: `seat`, `drive`, `conformance`.
 - Relicensed from MIT to Apache-2.0. Releases up to and including 0.0.1 stay under MIT; NOTICE keeps the MIT notice.
 
 
