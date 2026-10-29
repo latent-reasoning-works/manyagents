@@ -28,7 +28,7 @@ def test_lock_uses_registry_source():
 @pytest.mark.parametrize('target,expected', [
     ('wheel', ['manyagents']),
     ('sdist', [
-        'manyagents', 'tests', 'README.md', 'LICENSE', 'CHANGELOG.md',
+        'manyagents', 'tests', 'README.md', 'LICENSE', 'NOTICE', 'CHANGELOG.md',
         'CITATION.cff', 'pyproject.toml',
     ]),
 ])
@@ -57,8 +57,9 @@ def test_distributions_build_and_have_no_hook(tmp_path):
         assert configs <= set(archive.namelist())
         version = project['project']['version']
         metadata = archive.read(f'manyagents-{version}.dist-info/METADATA').decode()
-        assert 'License-Expression: MIT' in metadata
-        assert archive.read(f'manyagents-{version}.dist-info/licenses/LICENSE').startswith(b'MIT License')
+        assert 'License-Expression: Apache-2.0' in metadata
+        assert archive.read(f'manyagents-{version}.dist-info/licenses/LICENSE').lstrip().startswith(b'Apache License')
+        assert f'manyagents-{version}.dist-info/licenses/NOTICE' in archive.namelist()
         assert 'Provides-Extra: traces' in metadata
         assert 'Provides-Extra: wandb' in metadata
         assert 'Provides-Extra: docs' not in metadata
@@ -74,7 +75,7 @@ def test_distributions_build_and_have_no_hook(tmp_path):
         # no other top-level content (including build hooks) may appear.
         optional_vcs_ignore_files = {'.gitignore', '.hgignore'}
         assert {name.split('/')[0] for name in names - optional_vcs_ignore_files} - {'.'} == {
-            'manyagents', 'tests', 'README.md', 'LICENSE', 'CHANGELOG.md',
+            'manyagents', 'tests', 'README.md', 'LICENSE', 'NOTICE', 'CHANGELOG.md',
             'CITATION.cff', 'pyproject.toml', 'PKG-INFO',
         }
         assert configs <= names

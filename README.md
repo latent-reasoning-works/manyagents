@@ -11,7 +11,7 @@
 </pre>
 
 [![CI](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml/badge.svg)](https://github.com/latent-reasoning-works/manyagents/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT-8B5CF6.svg)](https://github.com/latent-reasoning-works/manyagents/blob/main/LICENSE)
+[![license](https://img.shields.io/badge/license-Apache--2.0-8B5CF6.svg)](https://github.com/latent-reasoning-works/manyagents/blob/main/LICENSE)
 [![python](https://img.shields.io/badge/python-3.11–3.12-8B5CF6.svg)](https://www.python.org)
 [![uv](https://img.shields.io/badge/pkg-uv-8B5CF6.svg)](https://docs.astral.sh/uv/)
 
@@ -239,12 +239,12 @@ If manyagents was useful in your research, a citation goes a long way:
   year      = {2026},
   version   = {0.0.1},
   url       = {https://github.com/latent-reasoning-works/manyagents},
-  license   = {MIT}
+  license   = {Apache-2.0}
 }
 ```
 
 <br><br>
 
 <p align="center">
-<sub>MIT License &middot; <a href="https://github.com/latent-reasoning-works">Latent Reasoning Works</a></sub>
+<sub>Apache-2.0 License &middot; <a href="https://github.com/latent-reasoning-works">Latent Reasoning Works</a></sub>
 </p>

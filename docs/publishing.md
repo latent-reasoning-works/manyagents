@@ -10,10 +10,10 @@ Both Hatch targets use `only-include` in `pyproject.toml`:
 
 - Wheel: `["manyagents"]`, excluding `manyagents/**/test_*.py`. Package data,
   including all Hydra YAML files, stays with the package.
-- Sdist: `["manyagents", "tests", "README.md", "LICENSE", "CHANGELOG.md",
+- Sdist: `["manyagents", "tests", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md",
   "CITATION.cff", "pyproject.toml"]`.
 
-Hatch also generates distribution metadata and includes the MIT license in the
+Hatch also generates distribution metadata and includes the Apache-2.0 LICENSE and NOTICE in the
 wheel. Repository workflows, agent instructions, hooks, Python version file,
 lockfile, `docs/`, and `scripts/` are development material and are not in the
 sdist. Tests pin the include-lists and inspect built archive contents. Checks
@@ -28,7 +28,7 @@ changed **1 file**, removing **2 occurrences**; the subsequent sweep found **0**
 
 The project and citation version are 0.0.1; `manyagents.__version__` and the
 lockfile agree. PyPI metadata identifies Latent Reasoning Works as the author,
-uses the MIT license expression and license file, describes the scientific
+uses the Apache-2.0 license expression and license files, describes the scientific
 workflow use case, and limits Python to `>=3.11,<3.13`. README links to repository
 documents are absolute so they also work on PyPI.
 
